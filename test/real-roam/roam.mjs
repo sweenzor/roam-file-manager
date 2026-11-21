@@ -136,10 +136,21 @@ export async function signIn(email, password) {
 }
 export async function openGraph(graph) {
   if (!roam.page.url().includes(`#/app/${graph}`)) await roam.page.goto(`${APP_URL}/${graph}`);
-  await waitFor(`graph ${graph} to load`, () => evalIn(() => {
-    if (/error loading your graph/i.test(document.body.innerText)) throw new Error('graph error');
-    return !!(window.roamAlphaAPI?.data?.q && document.querySelector('.roam-main .roam-article, .roam-main .roam-log-container, .rm-title-display'));
-  }), 180000);
+  try {
+    await waitFor(`graph ${graph} to load`, () => evalIn(() => {
+      if (/error loading your graph/i.test(document.body.innerText)) throw new Error('graph error');
+      return !!(window.roamAlphaAPI?.data?.q && document.querySelector('.roam-main .roam-article, .roam-main .roam-log-container, .rm-title-display'));
+    }), 180000);
+  } catch (e) {
+    // say what kind of screen Roam is on, without quoting it: the log is public
+    const where = await evalIn(() => {
+      const t = document.body.innerText;
+      return [location.hash.split('/').slice(0, 3).join('/'),
+        /sign in|log in/i.test(t) && 'sign-in form', /hosted graphs/i.test(t) && 'graph list', /do(es)? not have (access|permission)|not authorized|no access/i.test(t) && 'no access',
+        /error/i.test(t) && 'an error', /loading|syncing/i.test(t) && 'loading', !!window.roamAlphaAPI && 'api ready', `${t.length} chars`].filter(Boolean).join(', ');
+    }).catch(() => 'page not readable');
+    throw new Error(`${e.message} (Roam shows: ${where})`);
+  }
   roam.signedIn = true;
   await dismissDialogs();
   log('graph open');
