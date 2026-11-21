@@ -3,7 +3,7 @@
 //
 //   DISPLAY=:99 ROAM_EMAIL=… ROAM_PASSWORD=… node test/real-roam/run.mjs
 //
-// Checks what a read-only graph can't show: files uploaded to the graph appear in All Files with
+// Checks what a read-only graph can't show: files uploaded to the graph appear in Files with
 // their name, size and page; a file whose block is deleted turns up as unused; only unused files can
 // be deleted, and only after Roam's confirmation; a delete really removes the file from storage; and
 // a file still in a block is never touched. Writes RESULTS.md and PNG screenshots to $OUT.
@@ -58,9 +58,9 @@ function writeResults(extra = '') {
 const VIEW = '.rfm-view';
 const openAllFiles = async () => {
   await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.open());
-  await waitFor('the All Files row', extensionLoaded, 10000);
-  await evalIn(() => document.querySelector('.rm-left-sidebar__all-files').click());
-  await waitFor('the All Files list', () => evalIn((v) => !!document.querySelector(v), VIEW), 10000);
+  await waitFor('the Files row', extensionLoaded, 10000);
+  await evalIn(() => document.querySelector('.rm-left-sidebar__files').click());
+  await waitFor('the Files list', () => evalIn((v) => !!document.querySelector(v), VIEW), 10000);
 };
 const closeAllFiles = async () => {
   await evalIn(() => document.querySelector('.rm-left-sidebar__daily-notes').click());
@@ -97,7 +97,7 @@ const stored = (url) => evalIn((url) => fetch(url.replace(/\?.*$/, '')).then((r)
 
 // files an aborted earlier run left in storage can be passed in to be removed with this run's
 const STALE = (process.env.CLEANUP_URLS || '').split(/\s+/).filter(Boolean);
-let urls = {}, pageUid = null;
+let urls = {}, pageUid = null; const pageUids = [];
 try {
   serve(DIST);
   await launchRoam();
@@ -105,7 +105,7 @@ try {
   await openGraph(GRAPH);
   await loadDevExtension();
   check('loads through Roam Depot developer mode', await extensionLoaded());
-  check('All Files sits under All Pages in the left sidebar', await evalIn(() => document.querySelector('.rm-left-sidebar__all-pages')?.nextElementSibling?.classList.contains('rm-left-sidebar__all-files')));
+  check('Files sits under All Pages in the left sidebar', await evalIn(() => document.querySelector('.rm-left-sidebar__all-pages')?.nextElementSibling?.classList.contains('rm-left-sidebar__files')));
 
   // ---- three files on a test page ----
   const made = await evalIn(async ([title, names]) => {
@@ -134,9 +134,16 @@ try {
       await api.data.block.create({ location: { 'parent-uid': pageUid, order: order++ }, block: { uid, string: md } });
       out.blocks[k] = uid;
     }
+    // the kept file is also on a second page
+    const old2 = api.data.q('[:find ?u . :in $ ?t :where [?p :node/title ?t] [?p :block/uid ?u]]', `${title} 2`);
+    if (old2) await api.data.page.delete({ page: { uid: old2 } });
+    out.page2Uid = api.util.generateUID();
+    await api.data.page.create({ page: { title: `${title} 2`, uid: out.page2Uid } });
+    out.blocks.kept2 = api.util.generateUID();
+    await api.data.block.create({ location: { 'parent-uid': out.page2Uid, order: 0 }, block: { uid: out.blocks.kept2, string: `Second use ${out.md.kept.startsWith('![') ? `![](${out.urls.kept})` : out.urls.kept}` } });
     return out;
   }, [TEST_PAGE, NAMES]);
-  urls = made.urls; pageUid = made.pageUid;
+  urls = made.urls; pageUid = made.pageUid; pageUids.push(made.pageUid, made.page2Uid);
   log('uploaded', JSON.stringify(made.md));
   check('Roam stored the three test files', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
 
@@ -147,7 +154,14 @@ try {
   let kept = await rowOf(NAMES.kept), dropped = await rowOf(NAMES.dropped), doc = await rowOf(NAMES.doc);
   check('lists uploaded files by the name they were uploaded with', kept && dropped && doc, [kept, dropped, doc].map((r) => r?.name).join(', '));
   check('shows type and size', kept?.type === 'PNG' && /\d+ B|KB/.test(kept?.size ?? '') && doc?.type === 'TXT' && doc?.size === '1.0 KB', `${kept?.type} ${kept?.size}; ${doc?.type} ${doc?.size}`);
-  check('shows the page and one use', kept?.page === TEST_PAGE && kept?.uses === '1', `${kept?.page}, ${kept?.uses}`);
+  check('shows the page and one use', dropped?.page === TEST_PAGE && dropped?.uses === '1', `${dropped?.page}, ${dropped?.uses}`);
+  check('a file on two pages links both and counts two uses', kept?.uses === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.uses}`);
+  await evalIn(([v, name]) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name).querySelector('.rm-clickable-pill').click(), [VIEW, NAMES.kept]);
+  await sleep(400);
+  const menu = await evalIn(() => [...document.querySelectorAll('.rfm-uses-menu .bp3-menu-item')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+  check('its count opens a menu of the blocks', menu.length === 2 && menu.some((m) => m.includes('Second use')), menu.join(' | '));
+  await shot('uses-menu');
+  await closePopover();
   const today = await evalIn(() => window.roamAlphaAPI.util.dateToPageTitle(new Date()));
   check('shows the date added in Roam\'s date format', kept?.added === today, kept?.added);
   await search('');
@@ -174,7 +188,15 @@ try {
   check('the deleted blocks did not delete the files', (await stored(urls.dropped)) === 200 && (await stored(urls.doc)) === 200);
   await shot('unused');
 
-  // ---- delete: only after the confirmation ----
+  // ---- delete: only after the confirmation, and never a file whose link is still in the graph ----
+  // the text file's link now lives on in a page title, which the list doesn't read
+  const titleUid = await evalIn(async (url) => {
+    const uid = window.roamAlphaAPI.util.generateUID();
+    await window.roamAlphaAPI.data.page.create({ page: { title: `File Manager CI link ${url}`, uid } });
+    return uid;
+  }, urls.doc);
+  pageUids.push(titleUid);
+  await sleep(1000);
   await tick(NAMES.dropped); await tick(NAMES.doc);
   check('trash is on for unused files', !(await trashOff()));
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
@@ -188,10 +210,24 @@ try {
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
   await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
-  await waitFor('the files to leave the list', async () => !(await rowOf(NAMES.dropped)) && !(await rowOf(NAMES.doc)), 30000);
-  const after = [await stored(urls.dropped), await stored(urls.doc), await stored(urls.kept)];
-  check('confirming deletes the files from Roam\'s storage', [403, 404].includes(after[0]) && [403, 404].includes(after[1]), `storage answers ${after[0]}, ${after[1]}`);
+  await waitFor('the deleted file to leave the list', async () => !(await rowOf(NAMES.dropped)), 30000);
+  await sleep(1500);
+  let after = [await stored(urls.dropped), await stored(urls.doc), await stored(urls.kept)];
+  check('confirming deletes the file from Roam\'s storage', [403, 404].includes(after[0]), `storage answers ${after[0]}`);
+  check('a file whose link is still somewhere in the graph is not deleted', after[1] === 200 && !!(await rowOf(NAMES.doc)));
   check('the file still in a block is untouched', after[2] === 200);
+  check('says which file it could not delete', await evalIn((name) => [...document.querySelectorAll('.bp3-toast')].some((t) => t.textContent.includes(name)), NAMES.doc));
+  await shot('after-delete');
+  // with the page title gone, the text file can go too
+  await evalIn((uid) => window.roamAlphaAPI.data.page.delete({ page: { uid } }), titleUid);
+  await sleep(1000);
+  await tick(NAMES.doc);
+  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
+  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
+  await waitFor('the text file to leave the list', async () => !(await rowOf(NAMES.doc)), 30000);
+  after = [await stored(urls.doc), await stored(urls.kept)];
+  check('once nothing links to it, it is deleted', [403, 404].includes(after[0]) && after[1] === 200, `storage answers ${after[0]}`);
   await setSwitch('Unused', false);
   await closePopover();
   await search('fm-ci-');
@@ -202,12 +238,12 @@ try {
   // ---- the page link opens the block ----
   await search(NAMES.kept);
   await roam.page.click(`${VIEW} .rfm-page-link`);
-  await waitFor('the block to open', () => evalIn((uid) => !document.querySelector('.rfm-view') && location.hash.endsWith(uid), made.blocks.kept), 10000).then(
+  await waitFor('the block to open', () => evalIn((uids) => !document.querySelector('.rfm-view') && uids.some((u) => location.hash.endsWith(u)), [made.blocks.kept, made.blocks.kept2]), 10000).then(
     () => check('the page link opens the block that holds the file', true), () => check('the page link opens the block that holds the file', false));
   await shot('block-opened');
 
   // ---- what it has seen survives a restart ----
-  await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks.kept);
+  for (const uid of [made.blocks.kept, made.blocks.kept2]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
   await sleep(1500);
   await killRoam('SIGTERM');
   await launchRoam();
@@ -231,15 +267,15 @@ try {
   // leave the test graph as it was: no test page, no test files
   try {
     if (roam.page && roam.signedIn) {
-      const left = await evalIn(async ([urls, pageUid]) => {
+      const left = await evalIn(async ([urls, pageUids]) => {
         const api = window.roamAlphaAPI; const left = [];
-        if (pageUid && api.data.pull('[:block/uid]', [':block/uid', pageUid])) await api.data.page.delete({ page: { uid: pageUid } });
+        for (const uid of pageUids) if (uid && api.data.pull('[:block/uid]', [':block/uid', uid])) await api.data.page.delete({ page: { uid } });
         for (const url of Object.values(urls)) {
           if ((await fetch(url.replace(/\?.*$/, ''))).status !== 200) continue;
           try { await api.file.delete({ url }); } catch (e) { left.push(String(e).slice(0, 120)); }
         }
         return left;
-      }, [{ ...urls, ...Object.fromEntries(STALE.map((u, i) => [`stale${i}`, u])) }, pageUid]);
+      }, [{ ...urls, ...Object.fromEntries(STALE.map((u, i) => [`stale${i}`, u])) }, pageUids]);
       if (left.length) log('cleanup could not delete', left.join('; '));
       await dismissDialogs();
     }

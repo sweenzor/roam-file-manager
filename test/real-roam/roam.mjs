@@ -202,7 +202,7 @@ async function clickHeaderIcon(label, name) {
   }
   await btn.click();
 }
-const LOADED = '.rm-left-sidebar__all-files';
+const LOADED = '.rm-left-sidebar__files';
 export const extensionLoaded = () => evalIn((sel) => !!document.querySelector(sel), LOADED);
 /** Loads the served build through Settings > Roam Depot > Developer Extensions, unless Roam already
  *  loaded it at launch (it remembers the URL on this device). */
@@ -225,6 +225,6 @@ export async function loadDevExtension() {
   await input.fill(EXT_URL);
   await sleep(500); // an instant click after typing loads nothing: Roam's input state lags a moment
   await page.locator('.bp3-dialog button', { hasText: 'Load remote extension' }).click();
-  await waitFor('the All Files row in the left sidebar', extensionLoaded, 30000);
+  await waitFor('the Files row in the left sidebar', extensionLoaded, 30000);
   await dismissDialogs();
 }

@@ -1,6 +1,6 @@
 # roam-file-manager
 
-Roam Research extension: an "All Files" view of the graph's uploaded files (sort, search, find unused, delete).
+Roam Research extension: an "Files" view of the graph's uploaded files (sort, search, find unused, delete).
 
 ## Build and test
 

@@ -13,6 +13,7 @@ export interface Use {
   pageUid: string;
   pageTitle: string;
   time: number;         // the block's create time (ms), 0 when Roam has none
+  text: string;         // what else the block says, shortened; empty when it holds only the file
 }
 
 export interface FileEntry {
@@ -75,6 +76,12 @@ export const kindOf = (ext: string): Kind => KINDS[ext] ?? 'other';
 /** The file name Roam stored: the last path segment. Roam prefixes a random 10-character id. */
 export const storedName = (key: string) => key.slice(key.lastIndexOf('/') + 1);
 
+/** A block's text without its files: the URLs and the markup Roam wraps them in. */
+export function restOf(text: string): string {
+  const t = text.replace(URL_RE, '').replace(/!?\[([^\]]*)\]\(\)/g, '$1').replace(/\{\{\[*[\w ]+\]*:\s*\}\}/g, '').replace(/\s+/g, ' ').trim();
+  return t.length > 80 ? `${t.slice(0, 79)}…` : t;
+}
+
 export interface BlockRow { uid: string; text: string; time: number; pageUid: string; pageTitle: string }
 
 /** Groups the files in `blocks` by storage path. Uses are newest first; files are not sorted. */
@@ -94,7 +101,7 @@ export function collect(blocks: Iterable<BlockRow>): Map<string, FileEntry> {
         f.name = r.label;
       }
       if (b.time && (!f.added || b.time < f.added)) f.added = b.time;
-      if (!seen.has(key)) { seen.add(key); f.uses.push({ uid: b.uid, pageUid: b.pageUid, pageTitle: b.pageTitle, time: b.time }); }
+      if (!seen.has(key)) { seen.add(key); f.uses.push({ uid: b.uid, pageUid: b.pageUid, pageTitle: b.pageTitle, time: b.time, text: restOf(b.text) }); }
     }
   }
   for (const f of files.values()) f.uses.sort((a, b) => b.time - a.time);

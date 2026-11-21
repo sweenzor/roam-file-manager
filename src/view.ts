@@ -1,9 +1,9 @@
-// The All Files view: a details list of every file uploaded to the graph, drawn with the markup and
+// The Files view: a details list of every file uploaded to the graph, drawn with the markup and
 // classes of Roam's own All Pages table (rm-all-pages, rm-pages-row, ...), so Roam's stylesheet
 // styles it. Rows are virtual: only the rows in view (plus a margin) are in the DOM, so a graph
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
-import { compare, formatSize, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
+import { compare, formatSize, isEncrypted, type Kind, type Row, type SortKey, type Use } from './files.ts';
 
 export const ROW_H = 39;
 const OVERSCAN = 8;
@@ -41,6 +41,11 @@ export const STYLES = `
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-uses-zero{color:rgb(191,204,214)}
+.rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
+.rfm-preview{padding:6px;line-height:0}
+.rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
+.rfm-uses-menu{max-height:320px;overflow:auto;width:340px}
+.rfm-uses-menu .bp3-menu-item-label{max-width:190px}
 .rfm-hide-type .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-page .rfm-col-page,.rfm-hide-uses .rfm-col-uses,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
@@ -52,7 +57,7 @@ function drop(el: HTMLElement) { const img = el.querySelector('img'); if (img &&
 
 export interface ViewActions {
   openFile(row: Row): void;
-  openUse(row: Row, inSidebar: boolean): void;
+  openUse(use: Use, inSidebar: boolean): void;
   deleteFiles(rows: Row[]): Promise<void>;
   dateTitle(ms: number): string;
   stateChanged(): void;
@@ -81,7 +86,7 @@ export class FilesView {
   private popover: HTMLElement | null = null;
 
   constructor(private actions: ViewActions, public state: ViewState = defaultState()) {
-    const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search All Files', value: state.query,
+    const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search Files', value: state.query,
       onInput: (e: Event) => { this.state.query = (e.target as HTMLInputElement).value; this.refresh(); } });
     this.trash = h('button', { class: 'bp3-button bp3-minimal bp3-icon-trash button-disabled-strong', tabindex: 0, disabled: true, onClick: () => this.confirmDelete() });
     this.filterIcon = icon('filter', 'filter-icon');
@@ -97,14 +102,14 @@ export class FilesView {
       this.headCell({ key: 'name', label: 'NAME', cls: '', sortable: true, hideable: false }, true),
       ...COLS.map((c) => this.headCell(c)));
     this.spacer = h('div', { style: { position: 'relative', width: '100%' } });
-    this.scroller = h('div', { class: 'rfm-scroller', onScroll: () => this.draw() }, this.spacer);
+    this.scroller = h('div', { class: 'rfm-scroller', onScroll: () => { this.hidePreview(); this.draw(); } }, this.spacer);
     this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, h('div', { class: 'table' }, this.header, this.scroller));
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
     this.applyHidden();
   }
 
-  destroy() { this.ro.disconnect(); this.closePopover(); this.el.remove(); }
+  destroy() { this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.el.remove(); }
 
   setRows(rows: Row[]) {
     this.rows = rows;
@@ -162,8 +167,12 @@ export class FilesView {
     const thumb = r.kind === 'image' && r.size != null && r.size <= THUMB_MAX && !isEncrypted(r.key)
       ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
-    const use = r.uses[0];
-    const page = use ? h('span', { class: 'rfm-page-link', onClick: (e: MouseEvent) => this.actions.openUse(r, e.shiftKey) }, use.pageTitle) : null;
+    if (r.kind === 'image' && !isEncrypted(r.key)) this.previewOn(thumb, r);
+    // one link per page the file is on, newest first
+    const pages: Use[] = [];
+    for (const u of r.uses) if (!pages.some((p) => p.pageUid === u.pageUid)) pages.push(u);
+    const page = h('span', {});
+    pages.forEach((u, i) => page.append(i ? ', ' : '', h('span', { class: 'rfm-page-link', onClick: (e: MouseEvent) => this.actions.openUse(u, e.shiftKey) }, u.pageTitle)));
     return h('div', { class: 'rm-pages-row' },
       h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: 'bp3-control bp3-checkbox', style: { marginBottom: '0' } }, cb, h('span', { class: 'bp3-control-indicator' }))),
       h('div', { class: 'rm-pages-title-col bp3-text-overflow-ellipsis' }, thumb,
@@ -172,7 +181,7 @@ export class FilesView {
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-size' }, formatSize(r.size)),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-page' }, page),
       h('div', { class: 'rm-pages-col rfm-col-uses' }, r.uses.length
-        ? h('div', { class: 'rm-clickable-pill level1-pill', onClick: (e: MouseEvent) => this.actions.openUse(r, e.shiftKey) }, String(r.uses.length))
+        ? h('div', { class: 'rm-clickable-pill level1-pill', onClick: (e: MouseEvent) => this.openUses(e, r) }, String(r.uses.length))
         : h('span', { class: 'bp3-text-small rfm-uses-zero' }, '0')),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-added' }, r.added ? this.actions.dateTitle(r.added) : ''));
   }
@@ -221,14 +230,60 @@ export class FilesView {
   // ---------- popovers (Blueprint markup, like All Pages' column switches) ----------
   private closePopover() { this.popover?.remove(); this.popover = null; document.removeEventListener('mousedown', this.outside, true); }
   private outside = (e: MouseEvent) => { if (this.popover && !this.popover.contains(e.target as Node)) this.closePopover(); };
-  private openPopover(anchor: HTMLElement, body: HTMLElement) {
+  private openPopover(anchor: HTMLElement, body: HTMLElement, width = 220) {
     this.closePopover();
     const r = anchor.getBoundingClientRect();
-    this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, r.right - 220)}px`, zIndex: '20' } },
+    this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))}px`, zIndex: '20' } },
       h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content' }, body))));
     document.body.append(this.popover);
     setTimeout(() => document.addEventListener('mousedown', this.outside, true));
   }
+
+  /** A click on the uses count: straight to the block when there is one, else a menu of them. */
+  private openUses(e: MouseEvent, r: Row) {
+    if (r.uses.length === 1) return this.actions.openUse(r.uses[0], e.shiftKey);
+    if (this.popover) return this.closePopover();
+    const menu = h('ul', { class: 'bp3-menu rfm-uses-menu' }, ...r.uses.map((u) => h('li', {},
+      h('a', { class: 'bp3-menu-item', onClick: (ev: MouseEvent) => { this.closePopover(); this.actions.openUse(u, ev.shiftKey); } },
+        h('div', { class: 'bp3-text-overflow-ellipsis bp3-fill' }, u.pageTitle),
+        u.text && h('span', { class: 'bp3-menu-item-label bp3-text-overflow-ellipsis' }, u.text)))));
+    this.openPopover(e.currentTarget as HTMLElement, menu, 340);
+  }
+
+  // ---------- image preview on hover ----------
+  private preview: HTMLElement | null = null;
+  private previewTimer = 0;
+  private previewOn(el: HTMLElement, r: Row) {
+    el.addEventListener('mouseenter', () => {
+      clearTimeout(this.previewTimer);
+      // a short wait, so that running the pointer down the column loads nothing
+      this.previewTimer = window.setTimeout(() => this.showPreview(el, r), 150);
+    });
+    el.addEventListener('mouseleave', () => this.hidePreview());
+  }
+  private hidePreview() {
+    clearTimeout(this.previewTimer);
+    const img = this.preview?.querySelector('img');
+    if (img && !img.complete) img.src = '';
+    this.preview?.remove(); this.preview = null;
+  }
+  private showPreview(el: HTMLElement, r: Row) {
+    this.hidePreview();
+    if (!el.isConnected) return;
+    const a = el.getBoundingClientRect();
+    const box = h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', left: `${a.right + 10}px`, top: `${a.top}px`, zIndex: '20', visibility: 'hidden' } });
+    const img = h('img', { class: 'rfm-preview-img', src: r.url, alt: '' });
+    // shown once the picture has a size, and kept inside the window
+    img.addEventListener('load', () => {
+      const b = box.getBoundingClientRect();
+      box.style.top = `${Math.max(8, Math.min(a.top + a.height / 2 - b.height / 2, window.innerHeight - b.height - 8))}px`;
+      box.style.visibility = '';
+    });
+    box.append(h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content rfm-preview' }, img)));
+    this.preview = h('div', { class: 'bp3-portal', style: { pointerEvents: 'none' } }, box);
+    document.body.append(this.preview);
+  }
+
   private switchEl(label: string, on: boolean, change: (on: boolean) => void) {
     const input = h('input', { type: 'checkbox', checked: on, onChange: () => change(input.checked) });
     return h('label', { class: 'bp3-control bp3-switch bp3-align-right' }, input, h('span', { class: 'bp3-control-indicator' }), h('span', { style: { fontWeight: '400' } }, label));

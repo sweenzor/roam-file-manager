@@ -1,6 +1,6 @@
-// Ties the graph scan, the device store and the All Files view together.
-import { type FileEntry, type Row } from './files.ts';
-import { scanGraph } from './scan.ts';
+// Ties the graph scan, the device store and the Files view together.
+import { type FileEntry, type Row, type Use } from './files.ts';
+import { scanGraph, keysAnywhere } from './scan.ts';
 import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, type ViewState } from './view.ts';
 import { kindOf, extOf, storedName } from './files.ts';
@@ -121,7 +121,7 @@ export class App {
     const state = loadState();
     this.view = new FilesView({
       openFile: (r) => window.open(r.url, '_blank', 'noopener'),
-      openUse: (r, inSidebar) => this.openUse(r, inSidebar),
+      openUse: (use, inSidebar) => this.openUse(use, inSidebar),
       deleteFiles: (rows) => this.deleteFiles(rows),
       dateTitle: (ms) => api().util.dateToPageTitle(new Date(ms)),
       stateChanged: () => saveState(state),
@@ -138,9 +138,7 @@ export class App {
     this.view?.destroy(); this.view = null;
   }
 
-  private openUse(r: Row, inSidebar: boolean) {
-    const use = r.uses[0];
-    if (!use) return;
+  private openUse(use: Use, inSidebar: boolean) {
     if (inSidebar) { api().ui.rightSidebar.addWindow({ window: { type: 'block', 'block-uid': use.uid } }); return; }
     // the list is a main-window component: close it, or it stays over the block
     api().ui.mainWindow.closeComponent(VIEW_ID);
@@ -149,9 +147,10 @@ export class App {
 
   private async deleteFiles(rows: Row[]) {
     const own = ownPrefix(), graph = graphName();
-    // look at the graph again first: a file that a block uses now is never deleted
-    const current = await scanGraph();
-    const gone: string[] = [], failed: Row[] = [];
+    // look at the graph again first, this time at every text in it (blocks, page titles, anything
+    // else that holds text): a file whose link is anywhere in the graph is never deleted
+    const current = await keysAnywhere();
+    const gone: string[] = [];
     for (const r of rows) {
       if (!r.unused || !r.key.startsWith(own) || current.has(r.key)) continue;
       try {
@@ -160,14 +159,16 @@ export class App {
       } catch (e) {
         // already gone from storage counts as deleted
         if (/not.?found|404|does not exist/i.test(String(e))) gone.push(r.key);
-        else { failed.push(r); console.warn('[roam-file-manager] delete failed', r.key, e); }
+        else console.warn('[roam-file-manager] delete failed', r.key, e);
       }
     }
     await forget(graph, gone).catch(() => {});
     for (const k of gone) this.meta.delete(k);
     await this.scan().catch(() => {});
     this.view?.setRows(this.rows);
-    if (failed.length) errorToast(`Couldn't delete ${failed.map((r) => r.name).join(', ')}`);
+    // what was asked for, wasn't deleted, and still shows as unused
+    const left = rows.filter((r) => !gone.includes(r.key) && this.rows.some((x) => x.key === r.key && x.unused));
+    if (left.length) errorToast(`Couldn't delete ${left.map((r) => r.name).join(', ')}`);
   }
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRefs, storageKey, collect, compare, formatSize, kindOf, type Row } from '../src/files.ts';
+import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row } from '../src/files.ts';
 
 const U = (id: string, g = 'g') => `https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${g}%2F${id}?alt=media&token=t-${id}`;
 
@@ -59,4 +59,12 @@ test('sizes', () => {
   assert.equal(formatSize(1536), '1.5 KB');
   assert.equal(formatSize(5 * 1024 * 1024), '5.0 MB');
   assert.equal(formatSize(null), '');
+});
+
+test('what else a block says, without its files', () => {
+  assert.equal(restOf(`![](${U('a.png')})`), '');
+  assert.equal(restOf(`{{[[pdf]]: ${U('b.pdf')}}} #Deck`), '#Deck');
+  assert.equal(restOf(`Logo: ![](${U('a.png')}) for the site`), 'Logo: for the site');
+  assert.equal(restOf(`[Report Q3.xlsx](${U('e.xlsx')})`), 'Report Q3.xlsx');
+  assert.equal(restOf('x'.repeat(200)).length, 80);
 });

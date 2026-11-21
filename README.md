@@ -2,7 +2,7 @@
 
 See, sort and clean up the files uploaded to your Roam graph.
 
-File Manager adds **All Files** to the left sidebar, under All Pages. It lists every file you've
+File Manager adds **Files** to the left sidebar, under All Pages. It lists every file you've
 uploaded to the graph (images, PDFs, audio, video and anything else) in a table that works like
 All Pages.
 

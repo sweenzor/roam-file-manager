@@ -1,4 +1,4 @@
-// File Manager for Roam Research. Adds "All Files" under All Pages in the left sidebar: a details
+// File Manager for Roam Research. Adds "Files" under All Pages in the left sidebar: a details
 // list of every file uploaded to the graph, in the style of Roam's All Pages.
 import { App, VIEW_ID as ID } from './app.ts';
 import { closeStore } from './store.ts';
@@ -31,11 +31,11 @@ function onload() {
     app.unmount();
   });
 
-  // "All Files" in the left sidebar, built like the All Pages row. Roam redraws the sidebar when it
+  // "Files" in the left sidebar, built like the All Pages row. Roam redraws the sidebar when it
   // is opened or closed, so the row is put back whenever it goes missing.
-  const row = h('div', { class: 'log-button rm-left-sidebar__all-files', onClick: () => api.ui.mainWindow.openComponent(ID) },
+  const row = h('div', { class: 'log-button rm-left-sidebar__files', onClick: () => api.ui.mainWindow.openComponent(ID) },
     h('div', { class: 'flex-h-box', style: { alignItems: 'center', justifyContent: 'space-between' } },
-      h('span', { class: 'bp3-icon bp3-icon-folder-close icon bp3-icon-small' }), 'All Files'));
+      h('span', { class: 'bp3-icon bp3-icon-folder-close icon bp3-icon-small' }), 'Files'));
   const place = () => {
     if (row.isConnected) return;
     document.querySelector('.roam-sidebar-content .rm-left-sidebar__all-pages')?.after(row);
@@ -51,7 +51,7 @@ function onload() {
   const leave = (e: Event) => {
     if (!app.mounted) return;
     const t = e.target as HTMLElement | null;
-    if (!t?.closest || t.closest('.rm-left-sidebar__all-files')) return;
+    if (!t?.closest || t.closest('.rm-left-sidebar__files')) return;
     const nav = e.type === 'keydown'
       ? (e as KeyboardEvent).key === 'Enter' && !!t.closest('.rm-find-or-create-wrapper')
       : !!t.closest('.roam-sidebar-content .log-button, .roam-sidebar-content .starred-pages, .rm-find-or-create-wrapper .rm-menu-item, .rm-find-or-create-wrapper .rm-search-list-item');

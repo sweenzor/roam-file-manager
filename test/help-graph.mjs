@@ -29,9 +29,9 @@ await page.evaluate(async (code) => {
   window.__ext.onload({ extensionAPI: {} });
   await window.roamAlphaAPI.ui.leftSidebar.open();
 }, code);
-await page.waitForSelector('.rm-left-sidebar__all-files');
-check('All Files row sits under All Pages', await page.evaluate(() => document.querySelector('.rm-left-sidebar__all-pages').nextElementSibling?.classList.contains('rm-left-sidebar__all-files')));
-await page.click('.rm-left-sidebar__all-files');
+await page.waitForSelector('.rm-left-sidebar__files');
+check('Files row sits under All Pages', await page.evaluate(() => document.querySelector('.rm-left-sidebar__all-pages').nextElementSibling?.classList.contains('rm-left-sidebar__files')));
+await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)', { timeout: 30000 });
 const t0 = Date.now();
 await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].slice(1, 12).every((e) => e.textContent), null, { timeout: 60000 });
@@ -83,34 +83,69 @@ await page.mouse.click(700, 700);
 await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
 check('trash is off for a file that is in use', await page.evaluate(() => document.querySelector('.rfm-view .bp3-icon-trash').disabled));
 
+// a file in several blocks: every page is linked, and the count opens a menu of the blocks
+await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
+await page.click('.rfm-view [data-col="uses"] .sort-button.desc');
+await page.waitForTimeout(500);
+const multi = await page.evaluate(() => { const r = document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)'); return { uses: +r.querySelector('.rfm-col-uses').textContent, pages: [...r.querySelectorAll('.rfm-page-link')].map((e) => e.textContent) }; });
+check('a file in several blocks links each page it is on', multi.uses > 1 && multi.pages.length >= 1 && multi.pages.length <= multi.uses, `${multi.uses} uses on ${multi.pages.join(', ')}`);
+await page.click('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rm-clickable-pill');
+await page.waitForTimeout(300);
+check('its count opens a menu with one entry per block', await page.evaluate((n) => document.querySelectorAll('.rfm-uses-menu .bp3-menu-item').length === n, multi.uses));
+await page.screenshot({ path: path.join(OUT, '4-several-pages.png') });
+await page.mouse.click(700, 760);
+
+// hovering a picture's thumbnail or icon shows the picture
+await page.click('.rfm-view [data-col="size"] .sort-button.desc');
+await page.fill('.rfm-view .search-input', 'png');
+await page.waitForTimeout(500);
+await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-thumb-icon');
+await page.waitForFunction(() => { const i = document.querySelector('.rfm-preview-img'); return i && i.complete && i.naturalWidth > 0 && i.closest('.bp3-transition-container').style.visibility !== 'hidden'; }, null, { timeout: 30000 })
+  .then(() => check('hovering an image\'s icon shows the image', true), () => check('hovering an image\'s icon shows the image', false));
+await page.screenshot({ path: path.join(OUT, '5-hover-preview.png') });
+await page.mouse.move(700, 60);
+await page.waitForTimeout(300);
+check('the preview goes away with the pointer', await page.evaluate(() => !document.querySelector('.rfm-preview-img')));
+await page.fill('.rfm-view .search-input', '');
+await page.click('.rfm-view [data-col="added"] .sort-button.desc');
+
+// the last check before a delete reads every text in the graph
+const wide = await page.evaluate(async () => {
+  const q = (s) => window.roamAlphaAPI.data.async.q(s);
+  const t = performance.now();
+  const n = (await q('[:find ?s :where [_ ?a ?v] [(not= ?a :block/props)] [(str ?v) ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")]]')).length;
+  return { n, ms: Math.round(performance.now() - t) };
+});
+check('the whole-graph check before a delete runs', wide.n > 100, `${wide.n} texts in ${wide.ms} ms`);
+
 // the page link opens the block; the view goes away
 await page.click('.rfm-view .rfm-page-link');
 await page.waitForTimeout(1500);
 check('a page link leaves the list and opens the block', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-article')), await page.evaluate(() => location.hash));
 // back to the list, then Roam's own navigation closes it
-await page.click('.rm-left-sidebar__all-files');
+await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
 await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list', await page.evaluate(() => !document.querySelector('.rfm-view')));
 // from Daily Notes, back to Daily Notes: no route change, and the list still closes
-await page.click('.rm-left-sidebar__all-files');
+await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
 await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list when Roam was already on Daily Notes', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-log-container')));
-await page.click('.rm-left-sidebar__all-files');
+await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
 await page.click('.rm-left-sidebar__all-pages');
 await page.waitForTimeout(1500);
 check('All Pages closes the list', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('#all-pages-search')));
 
 // unload leaves nothing behind
-await page.click('.rm-left-sidebar__all-files');
+await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
 await page.evaluate(() => window.__ext.onunload());
 await page.waitForTimeout(800);
-check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__all-files, .rfm-view, style[data-roam-file-manager]')));
+check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager]')));
 
 await browser.close();
 const failed = checks.filter((c) => !c.ok);
