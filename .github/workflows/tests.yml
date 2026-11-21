@@ -1,0 +1,52 @@
+# Type check, unit tests, build, and the built extension in Roam's public help graph (headless, no
+# sign-in). The real-Roam run is in real-roam.yml.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: The build in Roam's help graph
+        run: node test/help-graph.mjs help-graph-out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: help-graph
+          path: help-graph-out/
+          if-no-files-found: ignore
+          retention-days: 14
