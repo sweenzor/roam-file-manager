@@ -216,6 +216,7 @@ try {
   check('confirming deletes the file from Roam\'s storage', [403, 404].includes(after[0]), `storage answers ${after[0]}`);
   check('a file whose link is still somewhere in the graph is not deleted', after[1] === 200 && !!(await rowOf(NAMES.doc)));
   check('the file still in a block is untouched', after[2] === 200);
+  check('nothing stays ticked after a delete', await evalIn((v) => ![...document.querySelectorAll(`${v} input[type=checkbox]`)].some((c) => c.checked), VIEW) && await trashOff());
   check('says which file it could not delete', await evalIn((name) => [...document.querySelectorAll('.bp3-toast')].some((t) => t.textContent.includes(name)), NAMES.doc));
   await shot('after-delete');
   // with the page title gone, the text file can go too

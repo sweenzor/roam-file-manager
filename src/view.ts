@@ -314,7 +314,8 @@ export class FilesView {
     const close = () => { overlay.remove(); document.removeEventListener('keydown', key, true); };
     const go = async () => {
       confirm.disabled = true;
-      try { await this.actions.deleteFiles(rows); for (const r of rows) this.selected.delete(r.key); } finally { close(); }
+      // nothing stays ticked afterwards, including a file that could not be deleted
+      try { await this.actions.deleteFiles(rows); } finally { for (const r of rows) this.selected.delete(r.key); this.refresh(); close(); }
     };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } else if (e.key === 'Enter') { e.preventDefault(); go(); } };
     const confirm = h('button', { class: 'bp3-button confirm-button bp3-intent-danger', onClick: go }, h('span', {}, `Yes, delete ${noun}`), icon('key-enter'));
