@@ -154,6 +154,22 @@ await page.click('.rfm-view [data-col="size"] .sort-button.desc');
 await page.waitForTimeout(500);
 const tileSizes = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile .rfm-col-size')].slice(0, 3).map((e) => e.textContent));
 check('the header sorts the tiles', tileSizes.length === 3 && tileSizes.join() === sizes.slice(0, 3).join(), tileSizes.join(', '));
+// a video plays in its tile
+await page.fill('.rfm-view .search-input', 'mp4');
+await page.waitForFunction(() => { const v = document.querySelector('.rfm-view .rfm-tile video'); return v && v.readyState >= 2; }, null, { timeout: 30000 }).catch(() => {});
+const played = await page.evaluate(async () => {
+  const v = document.querySelector('.rfm-view .rfm-tile video');
+  if (!v || !v.controls) return 'no video with controls';
+  const t = v.currentTime; v.muted = true;
+  try { await v.play(); } catch (e) { return String(e); }
+  await new Promise((r) => setTimeout(r, 1500));
+  const moved = v.currentTime > t; v.pause();
+  return moved ? 'ok' : 'did not advance';
+});
+check('a video plays in its tile', played === 'ok', played);
+await page.screenshot({ path: path.join(OUT, '7-video-tile.png') });
+await page.fill('.rfm-view .search-input', '');
+await page.waitForTimeout(300);
 await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
 check('trash is on for a ticked tile', await page.evaluate(() => !document.querySelector('.rfm-view .bp3-icon-trash').disabled));
 await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
