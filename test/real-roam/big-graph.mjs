@@ -106,6 +106,7 @@ const fill = (count, files, seed) => evalIn(async ([count, files, seed, graph]) 
   const fileLine = () => { const ext = pick(EXT); return `[${pick(WORDS)}-${pick(WORDS)}-${Math.floor(rnd() * 900 + 100)}.${ext}](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${graph}%2F${id()}.${ext}?alt=media&token=00000000-0000-4000-8000-${Math.floor(rnd() * 1e12).toString().padStart(12, '0')})`; };
   const PER = 500, pages = Math.ceil(count / PER);
   const fileEvery = files ? Math.max(1, Math.floor(count / files)) : 0;
+  const mkPage = d.page?.create ?? api.createPage, mkBlock = d.block?.create ?? api.createBlock;
   let how = d.page?.fromMarkdown ? 'page.fromMarkdown' : 'block.create', why = '';
   let made = 0, madeFiles = 0;
   for (let p = 0; p < pages && made < count; p++) {
@@ -124,11 +125,11 @@ const fill = (count, files, seed) => evalIn(async ([count, files, seed, graph]) 
     }
     if (!done) {
       const uid = api.util.generateUID();
-      await d.page.create({ page: { title, uid } });
+      await mkPage({ page: { title, uid } });
       const parents = [uid];
       for (const l of lines) {
         const b = api.util.generateUID();
-        await d.block.create({ location: { 'parent-uid': parents[l.depth], order: 'last' }, block: { uid: b, string: l.text } });
+        await mkBlock({ location: { 'parent-uid': parents[l.depth], order: 'last' }, block: { uid: b, string: l.text } });
         parents[l.depth + 1] = b;
       }
     }
@@ -332,7 +333,11 @@ try {
     await evalIn(async () => { const m = await import('http://127.0.0.1:8766/ci/extension.js'); await m.default.onload({ extensionAPI: { settings: { get() {}, set() {}, getAll() { return {}; }, panel: { create() {} } } } }); });
     await waitFor('the Files row in the left sidebar', extensionLoaded, 15000);
   }
-  log('extension loaded; API:', await evalIn(() => { const d = window.roamAlphaAPI.data; return `page: ${Object.keys(d.page ?? {}).join('/')}; block: ${Object.keys(d.block ?? {}).join('/')}; async: ${Object.keys(d.async ?? {}).join('/')}; fast: ${Object.keys(d.fast ?? {}).join('/')}`; }));
+  const apiNow = () => evalIn(() => { const a = window.roamAlphaAPI, d = a.data; return `top: ${Object.keys(a).join('/')}; data: ${Object.keys(d).join('/')}; page: ${Object.keys(d.page ?? {}).join('/')}; block: ${Object.keys(d.block ?? {}).join('/')}; async: ${Object.keys(d.async ?? {}).join('/')}`; });
+  // the write half of the API can arrive a moment after the graph opens
+  await waitFor('the API to write blocks', () => evalIn(() => { const a = window.roamAlphaAPI; return !!((a.data.block?.create ?? a.createBlock) && (a.data.page?.create ?? a.createPage)); }), 30000)
+    .catch(async () => { throw new Error(`no API to write blocks in a local graph (${await apiNow()})`); });
+  log('extension loaded; API:', await apiNow());
 
   const t0 = Date.now();
   let have = (await countBlocks()).n, filesLeft = FILES, seed = 1, rate = 0;
