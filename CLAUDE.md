@@ -14,6 +14,14 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 
 `test/real-roam/run.mjs` drives Roam's Linux desktop app, signed in to a hosted test graph (CI: `.github/workflows/real-roam.yml`, needs `ROAM_EMAIL` / `ROAM_PASSWORD` secrets). It uploads and deletes files, which the help graph can't.
 
+`test/real-roam/screenshots.mjs` takes the README's pictures the same way (CI: `.github/workflows/screenshots.yml`): it uploads the made-up files drawn by `test/real-roam/demo-files.mjs`, takes the pictures at 2x into `docs/images`, cancels both delete confirmations and removes its files and pages again. The workflow commits the pictures and re-pins the README's image links to that commit.
+
+## Releasing to Roam Depot
+
+- Every feature is in the README with a picture. A new feature gets a step in `screenshots.mjs` and a picture in the README.
+- Run the Screenshots workflow on the release branch before the release, so the pictures show the build being released. Its commits get no checks, so the last commit of a release must not be the workflow's.
+- README image links are absolute and pinned to a commit (Roam Depot shows the README).
+
 ## Architecture
 
 - `src/files.ts`: pure functions. Finds Roam-hosted file URLs in block text, groups them by storage path, sorting, size format.
