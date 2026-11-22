@@ -4,4 +4,5 @@
 
 - Files in the left sidebar: every file uploaded to the graph, with type, size, mentions and date added.
 - Sort, search and filter. Find files that no block mentions any more.
+- Hover over a picture to see it larger, or over a video to play it.
 - Delete files, with Roam's confirmation showing each file's picture, mentions and size. Deleting a file that blocks still mention warns that it leaves broken images and can't be undone.

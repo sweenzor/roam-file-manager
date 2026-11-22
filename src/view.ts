@@ -43,11 +43,13 @@ export const STYLES = `
 .rfm-delete-content{display:flex;flex-direction:column;max-height:min(440px,60vh) !important}
 .rfm-delete-content .delete-all-dialog-list{flex:1 1 auto;min-height:0;overflow-y:auto}
 .rfm-delete-warning{flex:0 0 auto;margin-bottom:12px}
-.rfm-delete-item{display:grid;grid-template-columns:48px minmax(0,1fr);column-gap:10px;align-items:center}
+.rfm-delete-item{display:grid;grid-template-columns:48px minmax(0,1fr) auto;column-gap:10px;align-items:center}
+.rfm-delete-item .rm-clickable-pill{grid-column:3;grid-row:1 / span 2;margin-right:6px}
 .rfm-delete-item .rfm-delete-thumb{grid-row:1 / span 2;width:48px;height:48px;border-radius:3px;object-fit:cover;display:flex;align-items:center;justify-content:center;color:#8a9ba8}
 .rfm-delete-warning>.bp3-icon{position:absolute;left:10px;top:10px}
 .rfm-preview{padding:6px;line-height:0}
 .rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
+.rfm-preview-video{max-width:480px;background:#000}
 .rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
@@ -62,6 +64,9 @@ export function pagesOf(r: Row): string[] {
   for (const u of r.uses) if (!out.includes(u.pageTitle)) out.push(u.pageTitle);
   return out;
 }
+
+/** Pictures and videos show a preview when the pointer is on their thumbnail or icon. */
+const previewable = (r: Row) => (r.kind === 'image' || r.kind === 'video') && !isEncrypted(r.key);
 
 /** Removes a row and stops its thumbnail if it is still loading. */
 function drop(el: HTMLElement) { const img = el.querySelector('img'); if (img && !img.complete) img.src = ''; el.remove(); }
@@ -180,7 +185,7 @@ export class FilesView {
     const thumb = r.kind === 'image' && r.size != null && r.size <= THUMB_MAX && !isEncrypted(r.key)
       ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
-    if (r.kind === 'image' && !isEncrypted(r.key)) this.previewOn(thumb, r);
+    if (previewable(r)) this.previewOn(thumb, r);
     const n = r.uses.length;
     return h('div', { class: 'rm-pages-row' },
       h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: `bp3-control bp3-checkbox${r.own ? '' : ' bp3-disabled'}`, style: { marginBottom: '0' } }, cb, h('span', { class: 'bp3-control-indicator' }))),
@@ -248,7 +253,7 @@ export class FilesView {
     setTimeout(() => document.addEventListener('mousedown', this.outside, true));
   }
 
-  // ---------- image preview on hover ----------
+  // ---------- preview on hover: a picture, or a video that plays ----------
   private preview: HTMLElement | null = null;
   private previewTimer = 0;
   private previewOn(el: HTMLElement, r: Row) {
@@ -257,28 +262,45 @@ export class FilesView {
       // a short wait, so that running the pointer down the column loads nothing
       this.previewTimer = window.setTimeout(() => this.showPreview(el, r), 150);
     });
-    el.addEventListener('mouseleave', () => this.hidePreview());
+    // a video's preview has controls, so the pointer gets a moment to move onto it
+    el.addEventListener('mouseleave', () => (r.kind === 'video' && this.preview ? this.hidePreviewSoon() : this.hidePreview()));
   }
+  private hidePreviewSoon() { clearTimeout(this.previewTimer); this.previewTimer = window.setTimeout(() => this.hidePreview(), 300); }
   private hidePreview() {
     clearTimeout(this.previewTimer);
-    const img = this.preview?.querySelector('img');
-    if (img && !img.complete) img.src = '';
+    const media = this.preview?.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
+    // stop a picture that is still loading, and a video that is still streaming
+    if (media instanceof HTMLVideoElement) { media.pause(); media.removeAttribute('src'); media.load(); }
+    else if (media && !media.complete) media.src = '';
     this.preview?.remove(); this.preview = null;
   }
   private showPreview(el: HTMLElement, r: Row) {
     this.hidePreview();
     if (!el.isConnected) return;
     const a = el.getBoundingClientRect();
-    const box = h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', left: `${a.right + 10}px`, top: `${a.top}px`, zIndex: '20', visibility: 'hidden' } });
-    const img = h('img', { class: 'rfm-preview-img', src: r.url, alt: '' });
-    // shown once the picture has a size, and kept inside the window
-    img.addEventListener('load', () => {
+    const video = r.kind === 'video';
+    const box = h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', left: `${a.right + 10}px`, top: `${a.top}px`, zIndex: '30', visibility: 'hidden' } });
+    // shown once the picture or video has a size, and kept inside the window
+    const place = () => {
       const b = box.getBoundingClientRect();
       box.style.top = `${Math.max(8, Math.min(a.top + a.height / 2 - b.height / 2, window.innerHeight - b.height - 8))}px`;
       box.style.visibility = '';
-    });
-    box.append(h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content rfm-preview' }, img)));
+    };
+    // a video starts by itself without sound; its controls turn the sound on
+    const media = video
+      ? h('video', { class: 'rfm-preview-img rfm-preview-video', src: r.url, autoplay: true, loop: true, playsinline: true, controls: true })
+      : h('img', { class: 'rfm-preview-img', src: r.url, alt: '' });
+    if (media instanceof HTMLVideoElement) media.muted = true;
+    media.addEventListener(video ? 'loadeddata' : 'load', place);
+    // a video this browser can't play (some .mov files) shows nothing
+    media.addEventListener('error', () => { if (this.preview?.contains(media)) this.hidePreview(); });
+    box.append(h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content rfm-preview' }, media)));
     this.preview = h('div', { class: 'bp3-portal', style: { pointerEvents: 'none' } }, box);
+    if (video) {
+      box.style.pointerEvents = 'auto';
+      box.addEventListener('mouseenter', () => clearTimeout(this.previewTimer));
+      box.addEventListener('mouseleave', () => this.hidePreview());
+    }
     document.body.append(this.preview);
   }
 
@@ -303,6 +325,24 @@ export class FilesView {
       this.switchEl('Unused', this.state.unusedOnly, (on) => { this.state.unusedOnly = on; this.refresh(); })));
   }
 
+  /** What is about to go: the picture itself, a video's first frame, or the file's icon. Hovering shows it larger, as in the list. */
+  private dialogThumb(r: Row): HTMLElement {
+    const iconEl = () => h('span', { class: 'rfm-delete-thumb rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
+    let el: HTMLElement;
+    if (isEncrypted(r.key)) el = iconEl();
+    else if (r.kind === 'image' && (r.size ?? Infinity) <= DIALOG_THUMB_MAX) el = h('img', { class: 'rfm-delete-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' });
+    else if (r.kind === 'video') {
+      // metadata only: enough for the first frame, without fetching the video
+      const v = h('video', { class: 'rfm-delete-thumb', src: `${r.url}#t=0.1`, preload: 'metadata', playsinline: true });
+      v.muted = true;
+      // a video this browser can't play keeps its icon
+      v.addEventListener('error', () => { const i = iconEl(); if (previewable(r)) this.previewOn(i, r); v.replaceWith(i); });
+      el = v;
+    } else el = iconEl();
+    if (previewable(r)) this.previewOn(el, r);
+    return el;
+  }
+
   // ---------- delete: Roam's own confirmation dialog markup ----------
   confirmDelete() {
     const rows = this.selectedRows().filter((r) => r.own);
@@ -311,7 +351,7 @@ export class FilesView {
     const warning = inUseWarning(rows);
     const n = rows.length, noun = n === 1 ? 'file' : 'files';
     let overlay: HTMLElement;
-    const close = () => { overlay.remove(); document.removeEventListener('keydown', key, true); };
+    const close = () => { this.hidePreview(); overlay.remove(); document.removeEventListener('keydown', key, true); };
     const go = async () => {
       confirm.disabled = true;
       // nothing stays ticked afterwards, including a file that could not be deleted
@@ -329,14 +369,15 @@ export class FilesView {
               warning && h('div', { class: 'bp3-callout bp3-intent-danger bp3-callout-icon rfm-delete-warning' }, icon('warning-sign'),
                 h('h4', { class: 'bp3-heading' }, 'Deleting can\'t be undone'), warning),
               h('div', { class: 'delete-all-dialog-list' },
-              ...rows.map((r, i) => h('div', { class: `delete-all-dialog-items rfm-delete-item${i === n - 1 ? ' last-item' : ''}` },
-                // what is about to go: the picture itself, or the file's icon
-                r.kind === 'image' && !isEncrypted(r.key) && (r.size ?? Infinity) <= DIALOG_THUMB_MAX
-                  ? h('img', { class: 'rfm-delete-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
-                  : h('span', { class: 'rfm-delete-thumb rfm-thumb-icon' }, icon(KIND_ICON[r.kind])),
-                h('div', { class: 'bp3-text-overflow-ellipsis' }, r.name),
-                // Roam's own dialog says "1 Mentions, 0 Words" under each page
-                h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [`${r.uses.length} Mentions`, formatSize(r.size)].filter(Boolean).join(', ')))))),
+              ...rows.map((r, i) => {
+                const m = r.uses.length;
+                return h('div', { class: `delete-all-dialog-items rfm-delete-item${i === n - 1 ? ' last-item' : ''}` },
+                  this.dialogThumb(r),
+                  h('div', { class: 'bp3-text-overflow-ellipsis' }, r.name),
+                  h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [r.ext.toUpperCase(), formatSize(r.size)].filter(Boolean).join(', ')),
+                  // the same count as in the list. A click shows the blocks: the dialog goes away, the ticks stay
+                  h('div', { class: `rm-clickable-pill${pillLevel(m)}`, onClick: () => { if (m) { close(); this.actions.openMentions(r); } } }, String(m)));
+              }))),
             h('div', { class: 'flex-h-box confirmation-content-buttons' },
               h('button', { class: 'bp3-button bp3-minimal cancel-button', onClick: close }, h('span', {}, 'Cancel'), icon('key-escape')),
               confirm))))));

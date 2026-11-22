@@ -9,7 +9,8 @@ All Pages.
 - **Sort** by name, type, size, mentions or date added. Newest files come first.
 - **Search** by file name, type or the page a file is on.
 - **Filter** by kind of file, or to files that no block mentions any more.
-- Click a file's name to open it. Hover over its picture to see it larger.
+- Click a file's name to open it. Hover over a picture to see it larger, or over a video to play it.
+  A video starts without sound; its controls turn the sound on.
 - **Mentions** counts the blocks a file is in, and the page it's on is shown next to its name. Click the
   count to open those blocks in the right sidebar, the way All Pages opens a page's mentions.
 - **Delete** files to free up their storage, whether or not a block still mentions them.
@@ -17,7 +18,9 @@ All Pages.
 ## Deleting files
 
 Tick one or more files and press the trash. Roam asks you to confirm, showing each file with its
-picture, its mentions and its size.
+picture (a video's first frame), its size and its mentions count. Hover over a picture or video there
+to see or play it, and click a mentions count to look at the blocks first: the confirmation closes,
+nothing is deleted and your ticks stay.
 
 **Deleting is permanent.** The file is removed from Roam's storage and can't be brought back.
 

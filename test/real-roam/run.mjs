@@ -191,6 +191,15 @@ try {
   await roam.page.keyboard.press('Enter');
   await sleep(1500);
   check('Enter does not confirm a delete that breaks blocks', (await dialogOpen()) && (await stored(urls.kept)) === 200);
+  // the mentions count in the confirmation shows the blocks: the dialog goes away, nothing is deleted, the tick stays
+  const chipText = await evalIn(() => document.querySelector('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill')?.textContent);
+  await evalIn(() => document.querySelector('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill').click());
+  await waitFor('the blocks in the right sidebar', async () => { const w = await side(); return mine.every((u) => w.includes(u)); }, 10000).catch(() => {});
+  const opened2 = await side();
+  check('the confirmation shows the mentions count, and a click on it opens the blocks instead of deleting', chipText === '2' && mine.every((u) => opened2.includes(u)) && !(await dialogOpen()) && (await stored(urls.kept)) === 200 && !(await trashOff()), `${chipText}; ${opened2.join(', ')}`);
+  await evalIn(async (uids) => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const uid of uids) await s.removeWindow({ window: { type: 'block', 'block-uid': uid } }); await s.close(); }, mine);
+  await sleep(800);
+  await openDialog();
   await cancelDialog();
   check('Cancel keeps the file', !(await dialogOpen()) && (await stored(urls.kept)) === 200);
   await tick(NAMES.kept);
@@ -224,7 +233,7 @@ try {
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
   await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
   const dialog = await evalIn(() => document.querySelector('.confirmation-content-dialog').innerText);
-  check('asks before deleting, naming the files and their mentions', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc) && (dialog.match(/0 Mentions, /g) ?? []).length === 2, dialog.split('\n')[0]);
+  check('asks before deleting, naming the files and their mentions', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill.empty-pill').length === 2), dialog.split('\n')[0]);
   check('no warning for files with 0 mentions, and each has its picture or icon', !(await warningText()) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog img.rfm-delete-thumb').length === 1 && document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 2));
   await shot('delete-confirm');
   await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
