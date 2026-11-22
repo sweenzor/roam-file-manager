@@ -1,18 +1,14 @@
 # Takes the README's screenshots in Roam's real desktop app (Linux build, under Xvfb), signed in to the
 # hosted test graph, commits them to docs/images on the branch it ran for, and points the README's image
 # links at that commit (Roam Depot shows the README, and needs links pinned to a commit). Run it before
-# every release to Roam Depot, so the pictures show the build being released. See
-# test/real-roam/screenshots.mjs. Needs the same ROAM_EMAIL and ROAM_PASSWORD secrets as Real Roam.
+# every release to Roam Depot, so the pictures show the build being released: Actions -> Screenshots ->
+# Run workflow, on the release branch. See test/real-roam/screenshots.mjs. Needs the same ROAM_EMAIL and
+# ROAM_PASSWORD secrets as Real Roam.
 name: Screenshots
 
-# A push by the workflow gets no checks of its own, so make the pictures before the last commit of a
-# release, not after it.
+# Run by hand only. A push by the workflow gets no checks of its own, so make the pictures before the last
+# commit of a release, not after it.
 on:
-  pull_request:
-    paths:
-      - 'test/real-roam/screenshots.mjs'
-      - 'test/real-roam/demo-files.mjs'
-      - '.github/workflows/screenshots.yml'
   workflow_dispatch:
 
 # Pushes the pictures back to the branch.
@@ -26,14 +22,13 @@ concurrency:
 
 jobs:
   screenshots:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       ROAM_VERSION: 0.0.42
       ROAM_DEB_SHA512: x9Ln56V7TlDO6zDcXK0AKDeAmz5LSX1oWpKbV6w7CUzbMc/LESJ7qLQs0Ap/nPpwPCf7jUypd0LS05SsJbD/HA==
       OUT: ${{ github.workspace }}/docs/images
-      BRANCH: ${{ github.head_ref || github.ref_name }}
+      BRANCH: ${{ github.ref_name }}
     steps:
       - name: Check for the Roam test account secrets
         id: creds
@@ -51,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.creds.outputs.ok == 'true'
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v4
         if: steps.creds.outputs.ok == 'true'
