@@ -1,0 +1,113 @@
+# Times Files on a very large graph, in Roam's real desktop app (Linux build, under Xvfb): how long finding
+# the files and opening the list take at each size, and how long Roam's window stalls meanwhile. The graph
+# is a local one made for the run and filled with made-up notes; nothing is written to a hosted graph.
+# See test/real-roam/big-graph.mjs. Run it by hand (Actions -> Big graph -> Run workflow) when the way
+# files are found changes. It also runs on a pull request that changes the script or this file.
+#
+# Needs the same ROAM_EMAIL and ROAM_PASSWORD secrets as Real Roam (Roam asks for a sign-in before it
+# opens a local graph). The results are printed at the end of the run's log and in its summary.
+name: Big graph
+
+on:
+  pull_request:
+    paths:
+      - test/real-roam/big-graph.mjs
+      - .github/workflows/big-graph.yml
+  workflow_dispatch:
+    inputs:
+      blocks:
+        description: Graph sizes to measure at, in blocks
+        default: '20000,100000,300000,1000000'
+      files:
+        description: How many of the blocks hold a file link
+        default: '2000'
+
+permissions:
+  contents: read
+
+# Its own group: it signs in to the same account as Real Roam, but never opens the hosted test graph.
+concurrency:
+  group: big-graph-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  big-graph:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      ROAM_VERSION: 0.0.42
+      ROAM_DEB_SHA512: x9Ln56V7TlDO6zDcXK0AKDeAmz5LSX1oWpKbV6w7CUzbMc/LESJ7qLQs0Ap/nPpwPCf7jUypd0LS05SsJbD/HA==
+      OUT: ${{ github.workspace }}/big-graph-out
+    steps:
+      - name: Check for the Roam test account secrets
+        id: creds
+        env:
+          HAS_EMAIL: ${{ secrets.ROAM_EMAIL != '' }}
+          HAS_PASSWORD: ${{ secrets.ROAM_PASSWORD != '' }}
+        run: |
+          if [ "$HAS_EMAIL" = true ] && [ "$HAS_PASSWORD" = true ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Skipped: add the ROAM_EMAIL and ROAM_PASSWORD repository secrets to run the extension in real Roam."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build the extension
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Cache the Roam installer
+        if: steps.creds.outputs.ok == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/roam-deb
+          key: roam-deb-${{ env.ROAM_VERSION }}
+
+      - name: Install Roam, Xvfb and Playwright
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          mkdir -p ~/roam-deb
+          deb=~/roam-deb/roam-research_${ROAM_VERSION}_amd64.deb
+          [ -f "$deb" ] || curl -fsSL -o "$deb" "https://roam-electron-deploy.s3.us-east-2.amazonaws.com/roam-research_${ROAM_VERSION}_amd64.deb"
+          echo "$(echo "$ROAM_DEB_SHA512" | base64 -d | od -An -v -tx1 | tr -d ' \n')  $deb" | sha512sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "$deb" xvfb
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright-core@1.63.0
+
+      - name: Time Files on a large graph
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          ROAM_EMAIL: ${{ secrets.ROAM_EMAIL }}
+          ROAM_PASSWORD: ${{ secrets.ROAM_PASSWORD }}
+          BLOCKS: ${{ inputs.blocks || '20000,100000,300000,1000000' }}
+          FILES: ${{ inputs.files || '2000' }}
+        run: |
+          Xvfb :99 -screen 0 1440x900x24 >/dev/null 2>&1 &
+          export DISPLAY=:99
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node test/real-roam/big-graph.mjs
+
+      - name: Summary
+        if: always() && steps.creds.outputs.ok == 'true'
+        run: '[ -f "$OUT/RESULTS.md" ] && cat "$OUT/RESULTS.md" >> "$GITHUB_STEP_SUMMARY" || true'
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.creds.outputs.ok == 'true'
+        with:
+          name: big-graph-results
+          path: big-graph-out/
+          if-no-files-found: ignore
+          retention-days: 14
