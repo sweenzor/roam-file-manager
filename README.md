@@ -43,6 +43,9 @@ Two things to know:
 
 - File sizes and upload dates come from Roam's file storage. They're fetched the first time the list is
   opened and kept on your device after that.
+- A video's picture is a frame of the video itself, made the first time the video is listed and kept on
+  your device. It needs your computer to be able to play the video: a video in a format it can't play
+  (for example an iPhone's HEVC recording on a computer without HEVC support) keeps the video icon.
 
 ## Development
 

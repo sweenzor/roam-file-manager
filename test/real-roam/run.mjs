@@ -105,6 +105,8 @@ try {
   await openGraph(GRAPH);
   await loadDevExtension();
   check('loads through Roam Depot developer mode', await extensionLoaded());
+  // which video formats this build of Roam can show a frame of
+  log('browser', await evalIn(() => { const v = document.createElement('video'); const can = (c) => v.canPlayType(`video/mp4; codecs="${c}"`) || 'no'; return `${navigator.userAgent.match(/Chrome\/[\d.]+|Electron\/[\d.]+/g)?.join(' ')}; H.264 ${can('avc1.42E01E')}, HEVC ${can('hvc1.1.6.L93.B0')}`; }));
   check('Files sits under All Pages in the left sidebar', await evalIn(() => document.querySelector('.rm-left-sidebar__all-pages')?.nextElementSibling?.classList.contains('rm-left-sidebar__files')));
 
   // ---- four files on a test page ----

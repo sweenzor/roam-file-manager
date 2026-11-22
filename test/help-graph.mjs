@@ -147,7 +147,12 @@ check('the preview goes away with the pointer', await page.evaluate(() => !docum
 await page.fill('.rfm-view .search-input', 'mp4');
 await page.click('.rfm-view [data-col="size"] .sort-button:not(.desc)');
 await page.waitForTimeout(500);
-await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-thumb-icon');
+// a video's row shows a frame of the video, decoded once and kept on the device
+await page.waitForFunction(() => { const r = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')]; return r.length > 0 && r.every((e) => { const i = e.querySelector('.rfm-still img'); return i && i.naturalWidth > 0; }); }, null, { timeout: 60000 })
+  .then(() => check('every MP4 in view shows a frame of the video', true), () => check('every MP4 in view shows a frame of the video', false));
+check('the frames are kept on the device', await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('roam-file-manager'); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').getAllKeys(); q.onsuccess = () => res(q.result.filter((k) => String(k).startsWith('still|')).length > 0); }; r.onerror = () => res(false); })));
+await page.screenshot({ path: path.join(OUT, '5a-video-stills.png') });
+await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-still');
 await page.waitForFunction(() => { const v = document.querySelector('video.rfm-preview-video'); return v && v.readyState >= 2 && v.currentTime > 0.2 && !v.paused && v.muted && v.controls; }, null, { timeout: 30000 })
   .then(() => check('hovering a video\'s icon plays the video, without sound', true), () => check('hovering a video\'s icon plays the video, without sound', false));
 await page.screenshot({ path: path.join(OUT, '5b-video-preview.png') });
