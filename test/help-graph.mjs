@@ -22,7 +22,8 @@ page.on('console', (m) => { if (m.text().includes('roam-file-manager')) console.
 await page.goto('https://roamresearch.com/#/app/help', { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
 await page.waitForTimeout(3000);
-await page.addStyleTag({ content: '.bp3-toast-container{display:none!important}' });
+// the help graph's own warning toast, which stays; the extension's toast is not in Roam's portal
+await page.addStyleTag({ content: '.bp3-portal .bp3-toast-container{display:none!important}' });
 await page.evaluate(async (code) => {
   const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
   window.__ext = (await import(url)).default;
@@ -36,17 +37,26 @@ await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)', 
 const t0 = Date.now();
 await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].slice(1, 12).every((e) => e.textContent), null, { timeout: 60000 });
 console.log('sizes on the first screen after', Date.now() - t0, 'ms');
-// several hundred files to fetch sizes for: past a second, a bar shows how far that has got
-const bar = () => page.evaluate(() => { const m = document.querySelector('.rfm-view .rfm-progress .bp3-progress-meter'); return m ? parseInt(m.style.width, 10) : null; });
+// several hundred files to fetch sizes for: past a second, a toast like Roam's for an upload shows how far that has got
+const bar = () => page.evaluate(() => { const m = document.querySelector('.rfm-toast .bp3-progress-meter'); return m ? parseInt(m.style.width, 10) : null; });
 check('nothing shows progress in the first second', (await bar()) === null && Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
-await page.waitForFunction(() => !!document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 5000 }).catch(() => {});
+await page.waitForFunction(() => !!document.querySelector('.rfm-toast'), null, { timeout: 5000 }).catch(() => {});
 const early = await bar();
 await page.waitForTimeout(1500);
 const later = await bar();
 check('a long first load shows a progress bar that moves on', early !== null && early > 0 && (later === null || later > early), `${early}% then ${later}%`);
+const spot = await page.evaluate(() => {
+  const t = document.querySelector('.rfm-toast .bp3-toast'), r = t?.getBoundingClientRect();
+  return r && { top: Math.round(r.top), off: Math.round(r.left + r.width / 2 - innerWidth / 2), icon: !!t.querySelector('.bp3-icon-folder-close'), text: t.textContent, striped: !!t.querySelector('.bp3-progress-bar.bp3-intent-primary:not(.bp3-no-stripes)'), inView: !!t.closest('.rfm-view') };
+});
+check('it is a toast where Roam shows its own: top of the window, centred, an icon and a striped bar, no text',
+  spot && spot.top === 20 && spot.off === 0 && spot.icon && spot.text === '' && spot.striped && !spot.inView, JSON.stringify(spot));
 await page.screenshot({ path: path.join(OUT, '0-first-load.png') });
-await page.waitForFunction(() => !document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 60000 })
-  .then(() => check('the bar goes away when every file has its size', true), () => check('the bar goes away when every file has its size', false));
+await page.waitForFunction(() => !!document.querySelector('.rfm-toast .bp3-progress-bar.bp3-intent-success.bp3-no-stripes'), null, { timeout: 60000 })
+  .then(() => check('the bar turns green when every file has its size', true), () => check('the bar turns green when every file has its size', false));
+const tDone = Date.now();
+await page.waitForFunction(() => !document.querySelector('.rfm-toast'), null, { timeout: 10000 })
+  .then(() => check('the toast leaves about two seconds later', Date.now() - tDone > 1500 && Date.now() - tDone < 4000, `${Date.now() - tDone} ms`), () => check('the toast leaves about two seconds later', false));
 const info = () => page.evaluate(() => {
   const rows = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')];
   const sc = document.querySelector('.rfm-scroller');
@@ -269,8 +279,12 @@ await page.waitForTimeout(1500);
 check('Daily Notes closes the list when Roam was already on Daily Notes', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-log-container')));
 await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
+// the header row is Roam's own: same height, same cells, as the one of All Pages
+const headerOf = () => page.evaluate(() => { const hd = document.querySelector('.rm-all-pages .rm-pages-row-header'); return [hd.offsetHeight, ...[...hd.children].map((c) => `${c.offsetHeight} ${getComputedStyle(c).display}`)].join(', '); });
+const ownHeader = await headerOf();
 await page.click('.rm-left-sidebar__all-pages');
 await page.waitForTimeout(1500);
+check('the header row measures the same as the one of All Pages', ownHeader === await headerOf(), ownHeader);
 check('All Pages closes the list', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('#all-pages-search')));
 
 // unload leaves nothing behind
@@ -279,6 +293,37 @@ await page.waitForSelector('.rfm-view');
 await page.evaluate(() => window.__ext.onunload());
 await page.waitForTimeout(800);
 check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager]')));
+
+// A first load again (a new browser profile has nothing kept): the toast goes when the list is left,
+// and stays away once it has been closed.
+{
+  const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+  await page.goto('https://roamresearch.com/#/app/help', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
+  await page.waitForTimeout(3000);
+  await page.addStyleTag({ content: '.bp3-portal .bp3-toast-container{display:none!important}' });
+  await page.evaluate(async (code) => {
+    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    window.__ext = (await import(url)).default;
+    window.__ext.onload({ extensionAPI: {} });
+    await window.roamAlphaAPI.ui.leftSidebar.open();
+  }, code);
+  const toast = () => page.evaluate(() => !!document.querySelector('.rfm-toast'));
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-toast', { timeout: 10000 }).catch(() => {});
+  const shown = await toast();
+  await page.click('.rm-left-sidebar__all-pages');
+  await page.waitForTimeout(1200);
+  check('leaving the list takes the progress toast away', shown && !(await toast()), `shown ${shown}`);
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-toast', { timeout: 10000 }).catch(() => {});
+  const again = await toast();
+  await page.click('.rfm-toast .bp3-button');
+  await page.waitForTimeout(1500);
+  const closed = !(await toast());
+  const loading = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].length > 0);
+  check('its close button closes the toast for that load', again && closed && loading, `shown ${again}, closed ${closed}`);
+}
 
 await browser.close();
 const failed = checks.filter((c) => !c.ok);
