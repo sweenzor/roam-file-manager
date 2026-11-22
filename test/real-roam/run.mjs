@@ -184,7 +184,7 @@ try {
   check('trash is on for a file that blocks still hold', !(await trashOff()));
   await openDialog();
   let warn = await warningText();
-  check('the confirmation warns that it leaves broken images and can\'t be undone', warn.includes('can\'t be undone') && warn.includes('This file is still in 2 blocks, which will be left with broken images.'), warn);
+  check('the confirmation warns that it leaves broken images and can\'t be undone', warn.includes('can\'t be undone') && warn.includes('This file is still referenced in 2 blocks, which will be left with broken images.'), warn);
   await waitFor('the picture in the confirmation', () => evalIn(() => { const i = document.querySelector('.confirmation-content-dialog img.rfm-delete-thumb'); return !!i && i.complete && i.naturalWidth > 0; }), 15000).then(
     () => check('the confirmation shows the picture', true), () => check('the confirmation shows the picture', false));
   await shot('delete-in-use-confirm');
@@ -271,7 +271,7 @@ try {
   await tick(NAMES.used);
   await openDialog();
   warn = await warningText();
-  check('warns about the one block', warn.includes('This file is still in 1 block, which will be left with a broken image.'), warn);
+  check('warns about the one block', warn.includes('This file is still referenced in 1 block, which will be left with a broken image.'), warn);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
   await waitFor('the deleted file to leave the list', async () => !(await rowOf(NAMES.used)), 30000);
   check('confirming deletes a file that was still in a block', [403, 404].includes(await stored(urls.used)), `storage answers ${await stored(urls.used)}`);

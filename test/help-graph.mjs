@@ -87,7 +87,7 @@ check('trash is on for a ticked file', await page.evaluate(() => !document.query
 await page.click('.rfm-view .bp3-icon-trash');
 await page.waitForSelector('.confirmation-content-dialog');
 const warn = await page.evaluate(() => document.querySelector('.rfm-delete-warning')?.innerText.replace(/\s+/g, ' ') ?? '');
-check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still in \d+ blocks?, which will be left with (a )?broken (image|link)s?\./.test(warn), warn);
+check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still referenced in \d+ blocks?, which will be left with (a )?broken (image|link)s?\./.test(warn), warn);
 check('the confirmation shows the file\'s picture or icon, and no Enter shortcut', await page.evaluate(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 1 && !document.querySelector('.confirmation-content-dialog .confirm-button .bp3-icon-key-enter')));
 await page.screenshot({ path: path.join(OUT, '3b-delete-in-use.png') });
 await page.click('.confirmation-content-dialog .cancel-button');
