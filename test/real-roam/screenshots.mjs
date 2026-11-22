@@ -188,15 +188,14 @@ async function main() {
   const mine = (list) => list.filter((r) => demo.names.includes(r.name));
 
   // The first time the list opens it fetches every file's size, date and name. On a slow connection
-  // (here: one made slow for this picture) that takes long enough for the progress toast to show.
+  // (here: one made slow for this picture) that takes long enough for the progress box to show.
   await cdp.send('Network.enable');
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 3000, downloadThroughput: -1, uploadThroughput: -1 });
   await openFiles();
-  await waitFor('the progress toast', () => evalIn(() => parseInt(document.querySelector('.rfm-toast .bp3-progress-meter')?.style.width ?? '0', 10) >= 25), 20000, 100);
+  await waitFor('the progress box', () => evalIn((v) => parseInt(document.querySelector(`${v} .rfm-loader .bp3-progress-meter`)?.style.width ?? '0', 10) >= 25, VIEW), 20000, 100);
   await parkMouse();
-  await sleep(350); // the toast has slid in
-  await snap('first-open', await boxOf(`.rfm-toast .bp3-toast, ${VIEW} .rm-pages-toolbar, ${VIEW} .rm-pages-row-header, ${ROW}`, 12), 0);
-  if (!(await evalIn(() => !!document.querySelector('.rfm-toast .bp3-intent-primary')))) throw new Error('the progress toast was done before its picture was taken');
+  await snap('first-open', await downTo(), 0);
+  if (!(await evalIn((v) => !!document.querySelector(`${v} .rfm-loader`), VIEW))) throw new Error('the progress box was gone before its picture was taken');
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   await cdp.send('Network.disable');
 
