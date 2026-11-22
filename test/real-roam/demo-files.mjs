@@ -241,6 +241,6 @@ export async function buildDemoFiles() {
   const v = await video(); made[v.name] = v;
   // In the order they are uploaded. The list opens with the newest first, so it reads from the bottom up.
   const order = ['kitchen-layout-v1.png', 'appliance-specifications.pdf', 'kitchen-floor-plan.png', 'north-wall-elevation.png', 'budget-chart.png', 'budget.csv',
-    v.name, 'site-visit-voice-memo.wav', 'joinery-quote.pdf', 'paint-shortlist.png', 'worktop-samples.jpg', 'tile-samples.jpg'];
+    'tile-samples.jpg', v.name, 'site-visit-voice-memo.wav', 'joinery-quote.pdf', 'worktop-samples.jpg', 'paint-shortlist.png'];
   return Object.fromEntries(order.map((name) => [name, made[name]]));
 }
