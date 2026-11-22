@@ -135,6 +135,33 @@ check('the preview goes away with the pointer', await page.evaluate(() => !docum
 await page.fill('.rfm-view .search-input', '');
 await page.click('.rfm-view [data-col="added"] .sort-button.desc');
 
+// thumbnail view: the button beside the filter swaps the rows for tiles, and the header keeps sorting them
+await page.click('.rfm-view .rfm-grid-button');
+await page.waitForSelector('.rfm-view .rfm-tile');
+const grid = await page.evaluate(() => {
+  const tiles = [...document.querySelectorAll('.rfm-view .rfm-tile')];
+  const tops = new Set(tiles.map((t) => t.style.top));
+  return { tiles: tiles.length, perLine: tiles.filter((t) => t.style.top === '0px').length, lines: tops.size, rows: document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)').length,
+    pressed: document.querySelector('.rfm-view .rfm-grid-button').classList.contains('bp3-active') };
+});
+check('the thumbnail button shows tiles, several to a line, in place of the rows', grid.perLine > 1 && grid.rows === 0 && grid.pressed, `${grid.perLine} to a line`);
+check('draws only the tiles in view', grid.tiles < 80, `${grid.tiles} tiles in the DOM`);
+await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-tile img')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 30000 })
+  .then(() => check('a tile shows its picture', true), () => check('a tile shows its picture', false));
+await page.waitForTimeout(2500);
+await page.screenshot({ path: path.join(OUT, '6-thumbnails.png') });
+await page.click('.rfm-view [data-col="size"] .sort-button.desc');
+await page.waitForTimeout(500);
+const tileSizes = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile .rfm-col-size')].slice(0, 3).map((e) => e.textContent));
+check('the header sorts the tiles', tileSizes.length === 3 && tileSizes.join() === sizes.slice(0, 3).join(), tileSizes.join(', '));
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
+check('trash is on for a ticked tile', await page.evaluate(() => !document.querySelector('.rfm-view .bp3-icon-trash').disabled));
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
+check('the thumbnail view is remembered', await page.evaluate(() => JSON.parse(localStorage.getItem('roam-file-manager:view')).grid === true));
+await page.click('.rfm-view .rfm-grid-button');
+check('the button goes back to the list', await page.evaluate(() => !document.querySelector('.rfm-view .rfm-tile') && document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)').length > 0));
+await page.click('.rfm-view [data-col="added"] .sort-button.desc');
+
 // the last check before a delete reads every text in the graph
 const wide = await page.evaluate(async () => {
   const q = (s) => window.roamAlphaAPI.data.async.q(s);

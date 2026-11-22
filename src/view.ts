@@ -11,6 +11,10 @@ const OVERSCAN = 8;
 const THUMB_MAX = 1.5 * 1024 * 1024;
 /** The delete confirmation shows few files at a time and loads them as they scroll into view, so larger pictures are fine there. */
 const DIALOG_THUMB_MAX = 10 * 1024 * 1024;
+/** The thumbnail view draws only the tiles in view and stops a picture that scrolls away, so it shows larger pictures too. */
+const GRID_THUMB_MAX = 10 * 1024 * 1024;
+/** Thumbnail view: the narrowest a tile gets, the space between tiles, and the height under the picture. */
+const TILE_MIN = 168, TILE_GAP = 16, TILE_CAPTION = 56;
 
 type Col = { key: SortKey; label: string; cls: string; sortable: boolean; hideable: boolean };
 const COLS: Col[] = [
@@ -48,9 +52,20 @@ export const STYLES = `
 .rfm-delete-warning>.bp3-icon{position:absolute;left:10px;top:10px}
 .rfm-preview{padding:6px;line-height:0}
 .rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
+.rfm-view .rfm-tile{box-sizing:border-box;border-radius:3px}
+.rfm-view .rfm-tile-pic{position:relative;border-radius:3px;overflow:hidden;background:#f5f8fa;display:flex;align-items:center;justify-content:center;color:#8a9ba8;cursor:pointer}
+.rfm-view .rfm-tile-pic img,.rfm-view .rfm-tile-pic video{width:100%;height:100%;object-fit:cover;display:block}
+.rfm-view .rfm-tile-pic .bp3-icon::before{font-size:32px}
+.rfm-view .rfm-tile-check{position:absolute;left:8px;top:8px;margin:0}
+.rfm-view .rfm-tile-name{display:block;margin-top:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.rfm-view .rfm-tile-meta{display:flex;align-items:center;gap:8px;height:22px;color:#8a9ba8;white-space:nowrap}
+.rfm-view .rfm-tile-meta>*{flex:0 0 auto}
+.rfm-view .rfm-tile-meta .rfm-col-mentions{margin-left:auto}
+.rfm-view.rfm-grid .rfm-scroller{margin-top:16px}
 .rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
+.bp3-dark .rfm-view .rfm-tile-pic{background:rgba(255,255,255,.06)}
 `;
 
 /** Roam's own classes for a Mentions count in All Pages (measured there: 0, 1 to 5, up to 25, up to 50, more). */
@@ -64,7 +79,11 @@ export function pagesOf(r: Row): string[] {
 }
 
 /** Removes a row and stops its thumbnail if it is still loading. */
-function drop(el: HTMLElement) { const img = el.querySelector('img'); if (img && !img.complete) img.src = ''; el.remove(); }
+function drop(el: HTMLElement) {
+  const img = el.querySelector('img'); if (img && !img.complete) img.src = '';
+  const video = el.querySelector('video'); if (video) { video.removeAttribute('src'); video.load(); }
+  el.remove();
+}
 
 export interface ViewActions {
   openFile(row: Row): void;
@@ -78,9 +97,11 @@ export interface ViewActions {
 export interface ViewState {
   sort: SortKey; desc: boolean; query: string;
   kinds: Set<Kind>; unusedOnly: boolean; hidden: Set<string>;
+  /** Thumbnail view in place of the list. */
+  grid: boolean;
 }
 
-export const defaultState = (): ViewState => ({ sort: 'added', desc: true, query: '', kinds: new Set(), unusedOnly: false, hidden: new Set() });
+export const defaultState = (): ViewState => ({ sort: 'added', desc: true, query: '', kinds: new Set(), unusedOnly: false, hidden: new Set(), grid: false });
 
 export class FilesView {
   readonly el: HTMLDivElement;
@@ -92,6 +113,9 @@ export class FilesView {
   private header: HTMLDivElement;
   private trash: HTMLButtonElement;
   private filterIcon: HTMLSpanElement;
+  private gridIcon: HTMLSpanElement;
+  /** How the rows are laid out now: files per line, the height of a line, the width of a tile. */
+  private per = 1; private lineH = ROW_H; private tileW = 0;
   private headAll: HTMLInputElement;
   private drawn = new Map<number, HTMLDivElement>();
   private ro: ResizeObserver;
@@ -103,11 +127,13 @@ export class FilesView {
     this.trash = h('button', { class: 'bp3-button bp3-minimal bp3-icon-trash button-disabled-strong', tabindex: 0, disabled: true, onClick: () => this.confirmDelete() });
     this.filterIcon = icon('filter', 'filter-icon');
     const filterBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleFilter(e.currentTarget as HTMLElement) }, this.filterIcon);
+    this.gridIcon = icon('grid-view', 'filter-icon');
+    const gridBtn = h('span', { class: 'bp3-button bp3-minimal filter-button rfm-grid-button', tabindex: 0, onClick: () => this.setGrid(!this.state.grid) }, this.gridIcon);
     const eyeBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleColumns(e.currentTarget as HTMLElement) }, icon('eye-open', 'filter-icon'));
     const toolbar = h('div', { class: 'flex-h-box rm-pages-toolbar' },
       h('div', { class: 'toolbar-action-button-group' }, this.trash),
       h('div', { class: 'toolbar-search-group' },
-        h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), filterBtn, eyeBtn));
+        h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), filterBtn, gridBtn, eyeBtn));
     this.headAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.headAll.checked) });
     this.header = h('div', { class: 'rm-pages-row rm-pages-row-header' },
       h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: 'bp3-control bp3-checkbox checkbox-header' }, this.headAll, h('span', { class: 'bp3-control-indicator' }))),
@@ -119,6 +145,7 @@ export class FilesView {
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
     this.applyHidden();
+    this.applyGrid();
   }
 
   destroy() { this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.el.remove(); }
@@ -136,8 +163,8 @@ export class FilesView {
   /** The rows as listed, and the keys of those on screen now. */
   order(): Row[] { return this.shown; }
   inView(): string[] {
-    const first = Math.floor(this.scroller.scrollTop / ROW_H), n = Math.ceil((this.scroller.clientHeight || 0) / ROW_H) + 1;
-    return this.shown.slice(first, first + n).map((r) => r.key);
+    const first = Math.floor(this.scroller.scrollTop / this.lineH), n = Math.ceil((this.scroller.clientHeight || 0) / this.lineH) + 1;
+    return this.shown.slice(first * this.per, (first + n) * this.per).map((r) => r.key);
   }
 
   refresh() {
@@ -147,7 +174,7 @@ export class FilesView {
       && (!q || r.name.toLowerCase().includes(q) || r.ext === q || r.uses.some((u) => u.pageTitle.toLowerCase().includes(q))));
     this.shown.sort(compare(this.state.sort, this.state.desc));
     this.filterIcon.classList.toggle('filtered', kinds.size > 0 || unusedOnly);
-    this.spacer.style.height = `${this.shown.length * ROW_H}px`;
+    this.measure();
     this.updateHeader();
     this.redraw();
   }
@@ -156,20 +183,43 @@ export class FilesView {
     const top = this.scroller.getBoundingClientRect().top;
     const room = window.innerHeight - top - 16;
     this.scroller.style.height = `${Math.max(ROW_H * 4, room)}px`;
-    this.draw();
+    // a width change moves every tile
+    if (this.measure()) this.redraw(); else this.draw();
   }
+
+  /** Works out the layout for the width there is; true when it changed. */
+  private measure(): boolean {
+    const { per, lineH, tileW } = this;
+    if (this.state.grid) {
+      const w = this.scroller.clientWidth || this.el.clientWidth || TILE_MIN;
+      this.per = Math.max(1, Math.floor((w + TILE_GAP) / (TILE_MIN + TILE_GAP)));
+      this.tileW = Math.floor((w - TILE_GAP * (this.per - 1)) / this.per);
+      this.lineH = Math.round(this.tileW * 0.75) + TILE_CAPTION + TILE_GAP;
+    } else { this.per = 1; this.lineH = ROW_H; this.tileW = 0; }
+    this.spacer.style.height = `${Math.ceil(this.shown.length / this.per) * this.lineH}px`;
+    return per !== this.per || lineH !== this.lineH || tileW !== this.tileW;
+  }
+
+  private setGrid(on: boolean) {
+    this.state.grid = on; this.hidePreview(); this.applyGrid();
+    this.scroller.scrollTop = 0; this.measure(); this.redraw(); this.actions.stateChanged();
+  }
+  private applyGrid() { this.el.classList.toggle('rfm-grid', this.state.grid); this.gridIcon.parentElement!.classList.toggle('bp3-active', this.state.grid); }
 
   private redraw() { for (const el of this.drawn.values()) drop(el); this.drawn.clear(); this.draw(); }
 
   private draw() {
     const top = this.scroller.scrollTop, height = this.scroller.clientHeight || window.innerHeight;
-    const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN);
-    const last = Math.min(this.shown.length - 1, Math.ceil((top + height) / ROW_H) + OVERSCAN);
+    const over = this.state.grid ? 2 : OVERSCAN;
+    const first = Math.max(0, (Math.floor(top / this.lineH) - over) * this.per);
+    const last = Math.min(this.shown.length - 1, (Math.ceil((top + height) / this.lineH) + over) * this.per - 1);
     for (const [i, el] of this.drawn) if (i < first || i > last) { drop(el); this.drawn.delete(i); }
     for (let i = first; i <= last; i++) {
       if (this.drawn.has(i)) continue;
-      const el = this.rowEl(this.shown[i]);
-      el.style.cssText = `position:absolute;left:0;top:${i * ROW_H}px;width:100%`;
+      const el = this.state.grid ? this.tileEl(this.shown[i]) : this.rowEl(this.shown[i]);
+      el.style.cssText = this.state.grid
+        ? `position:absolute;left:${(i % this.per) * (this.tileW + TILE_GAP)}px;top:${Math.floor(i / this.per) * this.lineH}px;width:${this.tileW}px`
+        : `position:absolute;left:0;top:${i * ROW_H}px;width:100%`;
       this.spacer.append(el); this.drawn.set(i, el);
     }
   }
@@ -193,6 +243,27 @@ export class FilesView {
       h('div', { class: 'rm-pages-col rfm-col-mentions' },
         h('div', { class: `rm-clickable-pill${pillLevel(n)}`, onClick: () => { if (n) this.actions.openMentions(r); } }, String(n))),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-added' }, r.added ? this.actions.dateTitle(r.added) : ''));
+  }
+
+  /** A file in the thumbnail view: its picture, then what the list's columns say about it. */
+  private tileEl(r: Row): HTMLDivElement {
+    const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
+    const open = !isEncrypted(r.key) && r.size != null && r.size <= GRID_THUMB_MAX;
+    const pic = r.kind === 'image' && open ? h('img', { src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
+      // a video's first frame: only the start of the file is fetched
+      : r.kind === 'video' && !isEncrypted(r.key) ? h('video', { src: `${r.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true })
+      : icon(KIND_ICON[r.kind]);
+    // a video this browser can't play gets its icon, as a file with no picture does
+    if (pic instanceof HTMLVideoElement) pic.addEventListener('error', () => pic.replaceWith(icon(KIND_ICON[r.kind])));
+    const n = r.uses.length;
+    return h('div', { class: 'rfm-tile' },
+      h('div', { class: 'rfm-tile-pic', style: { height: `${Math.round(this.tileW * 0.75)}px` }, onClick: (e: Event) => { if (!(e.target as HTMLElement).closest('label')) this.actions.openFile(r); } }, pic,
+        h('label', { class: `bp3-control bp3-checkbox rfm-tile-check${r.own ? '' : ' bp3-disabled'}` }, cb, h('span', { class: 'bp3-control-indicator' }))),
+      h('a', { class: 'rm-pages-title-text rfm-tile-name', onClick: () => this.actions.openFile(r) }, h('strong', {}, r.name)),
+      h('div', { class: 'rfm-tile-meta bp3-text-small' },
+        h('span', { class: 'rfm-col-type' }, r.ext.toUpperCase()),
+        h('span', { class: 'rfm-col-size' }, formatSize(r.size)),
+        h('div', { class: `rm-clickable-pill rfm-col-mentions${pillLevel(n)}`, onClick: () => { if (n) this.actions.openMentions(r); } }, String(n))));
   }
 
   private headCell(c: Col, title = false) {
