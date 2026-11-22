@@ -124,9 +124,10 @@ that was uploaded and removed again within a few minutes.
 <details>
 <summary><b>Large graphs</b></summary>
 
-Finding the files means looking through the text of every block, and Roam waits while that happens:
-about half a millisecond per thousand blocks, so a twentieth of a second for a graph of 100,000 blocks.
-It happens when you open **Files**, and every ten minutes at a moment when you aren't typing or clicking.
+Finding the files means looking through the text of every block, and Roam waits while that happens.
+Measured in Roam's desktop app with 2,000 files: opening **Files** holds Roam for about 0.2 seconds on
+a graph of 20,000 blocks, 0.6 seconds at 100,000 and 0.8 seconds at 300,000. It happens when you open
+**Files**, and every ten minutes at a moment when you aren't typing or clicking.
 </details>
 
 <details>
