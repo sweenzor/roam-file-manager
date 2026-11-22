@@ -286,7 +286,7 @@ export class FilesView {
   /** The rows as listed, and the keys of those on screen now. */
   order(): Row[] { return this.shown; }
   inView(): string[] {
-    const first = Math.floor(this.scroller.scrollTop / ROW_H), n = Math.ceil((this.scroller.clientHeight || 0) / ROW_H) + 1;
+    const first = Math.floor(this.scroller.scrollTop / ROW_H), n = Math.ceil(Math.min(this.scroller.clientHeight || 0, window.innerHeight) / ROW_H) + 1;
     return this.shown.slice(first, first + n).map((r) => r.key);
   }
 
@@ -333,7 +333,9 @@ export class FilesView {
   private redraw() { for (const el of this.drawn.values()) drop(el); this.drawn.clear(); this.draw(); }
 
   private draw() {
-    const top = this.scroller.scrollTop, height = this.scroller.clientHeight || window.innerHeight;
+    // never more than a window's worth: before the scroller has been given its height it is as tall as
+    // the whole list, and every row would be drawn
+    const top = this.scroller.scrollTop, height = Math.min(this.scroller.clientHeight || window.innerHeight, window.innerHeight);
     const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN);
     const last = Math.min(this.shown.length - 1, Math.ceil((top + height) / ROW_H) + OVERSCAN);
     for (const [i, el] of this.drawn) if (i < first || i > last) { drop(el); this.drawn.delete(i); }

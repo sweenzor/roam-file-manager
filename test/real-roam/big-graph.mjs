@@ -37,6 +37,7 @@ const HOSTED = process.env.ROAM_GRAPH || 'vault-spike-hosted';
 const HOSTED_MAX = +(process.env.HOSTED_MAX || 300000);
 const KIND = process.env.GRAPH_KIND || 'auto'; // local, hosted, or auto: local when the account can make one
 const PREFIX = 'rfm-big ';
+const LOAD_MINUTES = +(process.env.LOAD_MINUTES || 40);
 let hosted = false;
 const VIEW = '.rfm-view';
 
@@ -177,12 +178,23 @@ async function deleteOurPages() {
   }
   return uids.length;
 }
+/** Opens the hosted graph, with patience: after a run has filled and emptied it, Roam can take many
+ *  minutes to load it. Logs what the loading screen says meanwhile (never a signed-in graph's content). */
+async function openHosted() {
+  const t = Date.now();
+  const iv = setInterval(async () => {
+    const text = await evalIn(() => (window.roamAlphaAPI?.data?.q && document.querySelector('.roam-main') ? '' : document.body.innerText.replace(/\S+@\S+/g, '***').replace(/\s+/g, ' ').slice(0, 200))).catch(() => '');
+    if (text) log('still loading after', Math.round((Date.now() - t) / 1000), 's; Roam says:', text);
+  }, 60000);
+  try { await openGraph(GRAPH, LOAD_MINUTES * 60000); } finally { clearInterval(iv); }
+  log('the graph took', Math.round((Date.now() - t) / 1000), 's to open');
+}
 /** After the run on a hosted graph: the pages out, saved, and after a reload none of them there. */
 async function cleanUp() {
   const n = await deleteOurPages();
   await waitSynced(30);
   await roam.page.reload();
-  await openGraph(GRAPH);
+  await openHosted();
   await sleep(5000);
   const left = (await ourPages()).length, c = await countBlocks();
   log('clean-up: deleted', n, 'pages; after a reload', left, 'of them are left and the graph has', c.n, 'blocks');
@@ -392,7 +404,7 @@ try {
   }
   if (hosted) {
     GRAPH = HOSTED;
-    await openGraph(GRAPH);
+    await openHosted();
     await waitSynced(5);
     baseline = (await countBlocks()).n;
     const old = await deleteOurPages();

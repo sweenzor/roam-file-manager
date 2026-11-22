@@ -3,7 +3,7 @@
 # is a local one made for the run when the test account can make one. Otherwise it is the hosted test
 # graph, up to 300,000 blocks, on pages of the run's own that it deletes again at the end.
 # See test/real-roam/big-graph.mjs. Run it by hand (Actions -> Big graph -> Run workflow) when the way
-# files are found changes. It also runs, at smaller sizes, when a push changes the script or this file.
+# files are found changes. A push that changes the script or this file only runs its clean-up check.
 #
 # Needs the same ROAM_EMAIL and ROAM_PASSWORD secrets as Real Roam (Roam asks for a sign-in before it
 # opens a local graph). The results are printed at the end of the run's log and in its summary.
@@ -102,7 +102,9 @@ jobs:
           ROAM_PASSWORD: ${{ secrets.ROAM_PASSWORD }}
           BLOCKS: ${{ inputs.blocks || '20000,100000,300000' }}
           FILES: ${{ inputs.files || '2000' }}
-          CLEAN_ONLY: ${{ inputs.clean_only && '1' || '' }}
+          # a push only checks that the hosted test graph opens and holds nothing of an earlier run:
+          # filling it is for a run by hand
+          CLEAN_ONLY: ${{ (github.event_name == 'push' || inputs.clean_only) && '1' || '' }}
         run: |
           Xvfb :99 -screen 0 1440x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99

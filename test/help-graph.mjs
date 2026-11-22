@@ -234,8 +234,17 @@ await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list', await page.evaluate(() => !document.querySelector('.rfm-view')));
 // from Daily Notes, back to Daily Notes: no route change, and the list still closes
+// (and a list opened a second time has its rows from the start: still only those in view are drawn)
+await page.evaluate(() => {
+  window.__most = 0;
+  window.__mo = new MutationObserver(() => { window.__most = Math.max(window.__most, document.querySelectorAll('.rfm-view .rfm-scroller .rm-pages-row').length); });
+  window.__mo.observe(document.body, { childList: true, subtree: true });
+});
 await page.click('.rm-left-sidebar__files');
-await page.waitForSelector('.rfm-view');
+await page.waitForSelector('.rfm-view .rfm-scroller .rm-pages-row');
+await page.waitForTimeout(800);
+const most = await page.evaluate(() => { window.__mo.disconnect(); return window.__most; });
+check('opened again, the list draws only the rows in view', most > 0 && most < 60, `${most} rows at most`);
 await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list when Roam was already on Daily Notes', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-log-container')));
