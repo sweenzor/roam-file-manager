@@ -28,14 +28,13 @@ export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
 
 export const STYLES = `
-.rfm-view .rm-pages-row{height:${ROW_H}px;box-sizing:border-box}
-.rfm-view .rm-pages-title-col{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;overflow:hidden;padding-top:6px;padding-bottom:6px}
-.rfm-view .rm-pages-row-header .rm-pages-title-col{padding-top:8px;padding-bottom:8px}
+.rfm-view .rfm-scroller .rm-pages-row{height:${ROW_H}px;box-sizing:border-box}
+.rfm-view .rfm-scroller .rm-pages-row .rm-pages-title-col{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;overflow:hidden;padding-top:6px;padding-bottom:6px}
 .rfm-view .rfm-thumb{flex:0 0 26px;width:26px;height:26px;border-radius:3px;object-fit:cover;background:#f5f8fa}
 .rfm-view .rfm-thumb-icon{flex:0 0 26px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8a9ba8}
 .rfm-view .rm-pages-title-text{flex:0 1 auto;min-width:40px;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .rfm-view .title-children-text{flex:0 9999 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.rfm-view .rm-pages-col{line-height:22px}
+.rfm-view .rfm-scroller .rm-pages-row .rm-pages-col{line-height:22px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-type{flex-basis:72px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-size{flex-basis:70px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}

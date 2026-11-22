@@ -208,8 +208,12 @@ await page.waitForTimeout(1500);
 check('Daily Notes closes the list when Roam was already on Daily Notes', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-log-container')));
 await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
+// the header row is Roam's own: same height, same cells, as the one of All Pages
+const headerOf = () => page.evaluate(() => { const hd = document.querySelector('.rm-all-pages .rm-pages-row-header'); return [hd.offsetHeight, ...[...hd.children].map((c) => `${c.offsetHeight} ${getComputedStyle(c).display}`)].join(', '); });
+const ownHeader = await headerOf();
 await page.click('.rm-left-sidebar__all-pages');
 await page.waitForTimeout(1500);
+check('the header row measures the same as the one of All Pages', ownHeader === await headerOf(), ownHeader);
 check('All Pages closes the list', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('#all-pages-search')));
 
 // unload leaves nothing behind
