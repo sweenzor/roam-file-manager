@@ -1,6 +1,6 @@
 # roam-file-manager
 
-Roam Research extension: an "Files" view of the graph's uploaded files (sort, search, find unused, delete).
+Roam Research extension: a "Files" view of the graph's uploaded files (sort, search, find unused, delete).
 
 ## Build and test
 
@@ -34,3 +34,4 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 
 - Follow Roam's existing UI patterns and class names. No invented text: no empty states, hints or tooltips.
 - Never delete a file without the user confirming, and never one that a block uses.
+- Words come from Roam's All Pages: a file's uses are its Mentions. The count opens the blocks in the right sidebar and the list stays open, as All Pages does.

@@ -3,22 +3,21 @@
 // styles it. Rows are virtual: only the rows in view (plus a margin) are in the DOM, so a graph
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
-import { compare, formatSize, isEncrypted, type Kind, type Row, type SortKey, type Use } from './files.ts';
+import { compare, formatSize, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
 
 export const ROW_H = 39;
 const OVERSCAN = 8;
 /** Roam stores no thumbnails, so a picture's preview is the picture itself: only small ones are shown. */
 const THUMB_MAX = 1.5 * 1024 * 1024;
 
-type Col = { key: SortKey | 'page'; label: string; cls: string; sortable: boolean; hideable: boolean };
+type Col = { key: SortKey; label: string; cls: string; sortable: boolean; hideable: boolean };
 const COLS: Col[] = [
   { key: 'kind', label: 'TYPE', cls: 'rfm-col-type', sortable: true, hideable: true },
   { key: 'size', label: 'SIZE', cls: 'rfm-col-size', sortable: true, hideable: true },
-  { key: 'page', label: 'PAGE', cls: 'rfm-col-page', sortable: false, hideable: true },
-  { key: 'uses', label: 'USES', cls: 'rfm-col-uses', sortable: true, hideable: true },
+  { key: 'mentions', label: 'MENTIONS', cls: 'rfm-col-mentions', sortable: true, hideable: true },
   { key: 'added', label: 'ADDED', cls: 'rfm-col-added', sortable: true, hideable: true },
 ];
-const COL_NAMES: Record<string, string> = { kind: 'Type', size: 'Size', page: 'Page', uses: 'Uses', added: 'Added' };
+const COL_NAMES: Record<string, string> = { kind: 'Type', size: 'Size', mentions: 'Mentions', added: 'Added' };
 
 export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs'], ['audio', 'Audio'], ['video', 'Video'], ['other', 'Other files']];
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
@@ -29,35 +28,40 @@ export const STYLES = `
 .rfm-view .rm-pages-row-header .rm-pages-title-col{padding-top:8px;padding-bottom:8px}
 .rfm-view .rfm-thumb{flex:0 0 26px;width:26px;height:26px;border-radius:3px;object-fit:cover;background:#f5f8fa}
 .rfm-view .rfm-thumb-icon{flex:0 0 26px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8a9ba8}
-.rfm-view .rm-pages-title-text{overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.rfm-view .rm-pages-title-text{flex:0 1 auto;min-width:40px;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.rfm-view .title-children-text{flex:0 9999 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .rfm-view .rm-pages-col{line-height:22px}
-.rfm-view .rfm-col-page{flex:0 1 220px;text-align:left !important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:90px}
 .rfm-view .rfm-col-type{flex-basis:80px}
 .rfm-view .rfm-col-size{flex-basis:90px}
-.rfm-view .rfm-col-uses{flex-basis:80px}
+.rfm-view .rfm-col-mentions{flex-basis:110px}
 .rfm-view .rfm-col-added{flex-basis:170px}
-.rfm-view .rfm-page-link{color:rgb(16,107,163);cursor:pointer}
-.rfm-view .rfm-page-link:hover{text-decoration:underline}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
-.rfm-view .rfm-uses-zero{color:rgb(191,204,214)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
 .rfm-preview{padding:6px;line-height:0}
 .rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
-.rfm-uses-menu{max-height:320px;overflow:auto;width:340px}
-.rfm-uses-menu .bp3-menu-item-label{max-width:190px}
-.rfm-hide-type .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-page .rfm-col-page,.rfm-hide-uses .rfm-col-uses,.rfm-hide-added .rfm-col-added{display:none}
+.rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
-.bp3-dark .rfm-view .rfm-page-link{color:rgb(72,175,240)}
 `;
+
+/** Roam's own classes for a Mentions count in All Pages (measured there: 0, 1 to 5, up to 25, up to 50, more). */
+const pillLevel = (n: number) => (n === 0 ? ' empty-pill' : n > 50 ? ' level3-pill' : n > 25 ? ' level2-pill' : n > 5 ? ' level1-pill' : '');
+
+/** The titles of the pages a file is on, the newest mention first. */
+export function pagesOf(r: Row): string[] {
+  const out: string[] = [];
+  for (const u of r.uses) if (!out.includes(u.pageTitle)) out.push(u.pageTitle);
+  return out;
+}
 
 /** Removes a row and stops its thumbnail if it is still loading. */
 function drop(el: HTMLElement) { const img = el.querySelector('img'); if (img && !img.complete) img.src = ''; el.remove(); }
 
 export interface ViewActions {
   openFile(row: Row): void;
-  openUse(use: Use, inSidebar: boolean): void;
+  /** Opens every block that holds the file in the right sidebar, as All Pages' Mentions count does for a page. */
+  openMentions(row: Row): void;
   deleteFiles(rows: Row[]): Promise<void>;
   dateTitle(ms: number): string;
   stateChanged(): void;
@@ -168,21 +172,17 @@ export class FilesView {
       ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     if (r.kind === 'image' && !isEncrypted(r.key)) this.previewOn(thumb, r);
-    // one link per page the file is on, newest first
-    const pages: Use[] = [];
-    for (const u of r.uses) if (!pages.some((p) => p.pageUid === u.pageUid)) pages.push(u);
-    const page = h('span', {});
-    pages.forEach((u, i) => page.append(i ? ', ' : '', h('span', { class: 'rfm-page-link', onClick: (e: MouseEvent) => this.actions.openUse(u, e.shiftKey) }, u.pageTitle)));
+    const n = r.uses.length;
     return h('div', { class: 'rm-pages-row' },
       h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: 'bp3-control bp3-checkbox', style: { marginBottom: '0' } }, cb, h('span', { class: 'bp3-control-indicator' }))),
       h('div', { class: 'rm-pages-title-col bp3-text-overflow-ellipsis' }, thumb,
-        h('a', { class: 'rm-pages-title-text', onClick: () => this.actions.openFile(r) }, h('strong', {}, r.name))),
+        h('a', { class: 'rm-pages-title-text', onClick: () => this.actions.openFile(r) }, h('strong', {}, r.name)),
+        // where All Pages shows the start of a page in grey, the page (or pages) the file is on
+        n > 0 && h('span', { class: 'title-children-text' }, pagesOf(r).join(', '))),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-type' }, r.ext.toUpperCase()),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-size' }, formatSize(r.size)),
-      h('div', { class: 'rm-pages-col bp3-text-small rfm-col-page' }, page),
-      h('div', { class: 'rm-pages-col rfm-col-uses' }, r.uses.length
-        ? h('div', { class: 'rm-clickable-pill level1-pill', onClick: (e: MouseEvent) => this.openUses(e, r) }, String(r.uses.length))
-        : h('span', { class: 'bp3-text-small rfm-uses-zero' }, '0')),
+      h('div', { class: 'rm-pages-col rfm-col-mentions' },
+        h('div', { class: `rm-clickable-pill${pillLevel(n)}`, onClick: () => { if (n) this.actions.openMentions(r); } }, String(n))),
       h('div', { class: 'rm-pages-col bp3-text-small rfm-col-added' }, r.added ? this.actions.dateTitle(r.added) : ''));
   }
 
@@ -211,7 +211,7 @@ export class FilesView {
     }
     const sel = this.selectedRows();
     this.headAll.checked = this.shown.length > 0 && sel.length === this.shown.length;
-    // like All Pages' trash, but only files no block uses can be deleted
+    // like All Pages' trash, but only files with no mentions can be deleted
     const ok = sel.length > 0 && sel.every((r) => r.unused);
     this.trash.disabled = !ok;
     this.trash.classList.toggle('button-disabled-strong', !ok);
@@ -237,17 +237,6 @@ export class FilesView {
       h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content' }, body))));
     document.body.append(this.popover);
     setTimeout(() => document.addEventListener('mousedown', this.outside, true));
-  }
-
-  /** A click on the uses count: straight to the block when there is one, else a menu of them. */
-  private openUses(e: MouseEvent, r: Row) {
-    if (r.uses.length === 1) return this.actions.openUse(r.uses[0], e.shiftKey);
-    if (this.popover) return this.closePopover();
-    const menu = h('ul', { class: 'bp3-menu rfm-uses-menu' }, ...r.uses.map((u) => h('li', {},
-      h('a', { class: 'bp3-menu-item', onClick: (ev: MouseEvent) => { this.closePopover(); this.actions.openUse(u, ev.shiftKey); } },
-        h('div', { class: 'bp3-text-overflow-ellipsis bp3-fill' }, u.pageTitle),
-        u.text && h('span', { class: 'bp3-menu-item-label bp3-text-overflow-ellipsis' }, u.text)))));
-    this.openPopover(e.currentTarget as HTMLElement, menu, 340);
   }
 
   // ---------- image preview on hover ----------
@@ -328,7 +317,8 @@ export class FilesView {
             h('div', { class: 'confirmation-content' }, h('div', { class: 'delete-all-dialog-list' },
               ...rows.map((r, i) => h('div', { class: `delete-all-dialog-items${i === n - 1 ? ' last-item' : ''}` },
                 h('div', { class: 'bp3-text-overflow-ellipsis' }, r.name),
-                h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [r.ext.toUpperCase(), formatSize(r.size)].filter(Boolean).join(', ')))))),
+                // Roam's own dialog says "1 Mentions, 0 Words" under each page
+                h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [`${r.uses.length} Mentions`, formatSize(r.size)].filter(Boolean).join(', ')))))),
             h('div', { class: 'flex-h-box confirmation-content-buttons' },
               h('button', { class: 'bp3-button bp3-minimal cancel-button', onClick: close }, h('span', {}, 'Cancel'), icon('key-escape')),
               confirm))))));

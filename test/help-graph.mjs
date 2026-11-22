@@ -83,17 +83,32 @@ await page.mouse.click(700, 700);
 await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
 check('trash is off for a file that is in use', await page.evaluate(() => document.querySelector('.rfm-view .bp3-icon-trash').disabled));
 
-// a file in several blocks: every page is linked, and the count opens a menu of the blocks
+// a file in several blocks: one count, the pages in grey after the name, and a click opens the blocks in the right sidebar
 await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
-await page.click('.rfm-view [data-col="uses"] .sort-button.desc');
+await page.click('.rfm-view [data-col="mentions"] .sort-button.desc');
 await page.waitForTimeout(500);
-const multi = await page.evaluate(() => { const r = document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)'); return { uses: +r.querySelector('.rfm-col-uses').textContent, pages: [...r.querySelectorAll('.rfm-page-link')].map((e) => e.textContent) }; });
-check('a file in several blocks links each page it is on', multi.uses > 1 && multi.pages.length >= 1 && multi.pages.length <= multi.uses, `${multi.uses} uses on ${multi.pages.join(', ')}`);
-await page.click('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rm-clickable-pill');
-await page.waitForTimeout(300);
-check('its count opens a menu with one entry per block', await page.evaluate((n) => document.querySelectorAll('.rfm-uses-menu .bp3-menu-item').length === n, multi.uses));
-await page.screenshot({ path: path.join(OUT, '4-several-pages.png') });
+const multi = await page.evaluate(() => { const r = document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)'); return { mentions: +r.querySelector('.rfm-col-mentions').textContent, pages: r.querySelector('.title-children-text')?.textContent ?? '' }; });
+check('a file in several blocks counts its mentions and names its pages', multi.mentions > 1 && multi.pages.length > 0, `${multi.mentions} mentions on ${multi.pages}`);
+check('the columns are Type, Size, Mentions and Added', await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rm-pages-row-header .rm-pages-col')].map((c) => c.textContent).join(' ') === 'TYPE SIZE MENTIONS ADDED'));
+// each column can be hidden, as in All Pages
+await page.click('.rfm-view .bp3-icon-eye-open');
+for (const name of ['Type', 'Size', 'Mentions', 'Added']) {
+  const sw = () => page.evaluate((name) => [...document.querySelectorAll('.bp3-popover label')].find((e) => e.textContent.trim() === name).querySelector('input').click(), name);
+  await sw();
+  const hidden = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rm-pages-row-header .rm-pages-col')].filter((c) => getComputedStyle(c).display !== 'none').map((c) => c.textContent).join(' '));
+  check(`the ${name} column can be hidden`, !hidden.includes(name.toUpperCase()), hidden);
+  await sw();
+}
 await page.mouse.click(700, 760);
+await page.waitForTimeout(300);
+await page.click('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rm-clickable-pill');
+await page.waitForFunction((n) => window.roamAlphaAPI.ui.rightSidebar.getWindows().filter((w) => w.type === 'block').length === n && !!document.querySelector('#right-sidebar .rm-sidebar-window'), multi.mentions, { timeout: 10000 })
+  .then(() => check('its count opens every block that holds it in the right sidebar', true), () => check('its count opens every block that holds it in the right sidebar', false));
+check('the list stays open', await page.evaluate(() => !!document.querySelector('.rfm-view')));
+await page.waitForTimeout(1500);
+await page.screenshot({ path: path.join(OUT, '4-mentions-in-sidebar.png') });
+await page.evaluate(async () => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const w of s.getWindows()) await s.removeWindow({ window: { type: w.type, 'block-uid': w['block-uid'] } }); await s.close(); });
+await page.waitForTimeout(800);
 
 // hovering a picture's thumbnail or icon shows the picture
 await page.click('.rfm-view [data-col="size"] .sort-button.desc');
@@ -118,13 +133,7 @@ const wide = await page.evaluate(async () => {
 });
 check('the whole-graph check before a delete runs', wide.n > 100, `${wide.n} texts in ${wide.ms} ms`);
 
-// the page link opens the block; the view goes away
-await page.click('.rfm-view .rfm-page-link');
-await page.waitForTimeout(1500);
-check('a page link leaves the list and opens the block', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-article')), await page.evaluate(() => location.hash));
-// back to the list, then Roam's own navigation closes it
-await page.click('.rm-left-sidebar__files');
-await page.waitForSelector('.rfm-view');
+// Roam's own navigation closes the list
 await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list', await page.evaluate(() => !document.querySelector('.rfm-view')));

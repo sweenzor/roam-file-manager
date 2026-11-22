@@ -2,5 +2,5 @@
 
 ## 0.1.0
 
-- Files in the left sidebar: every file uploaded to the graph, with type, size, page, uses and date added.
-- Sort, search and filter. Find files no block uses any more and delete them.
+- Files in the left sidebar: every file uploaded to the graph, with type, size, mentions and date added.
+- Sort, search and filter. Find files that no block mentions any more and delete them.

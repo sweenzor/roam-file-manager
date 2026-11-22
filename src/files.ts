@@ -108,7 +108,7 @@ export function collect(blocks: Iterable<BlockRow>): Map<string, FileEntry> {
   return files;
 }
 
-export type SortKey = 'name' | 'kind' | 'size' | 'uses' | 'added';
+export type SortKey = 'name' | 'kind' | 'size' | 'mentions' | 'added';
 
 export interface Row extends FileEntry { size: number | null; unused: boolean; lastUsed: number }
 
@@ -120,7 +120,7 @@ export function compare(key: SortKey, desc: boolean) {
       case 'name': d = a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }); break;
       case 'kind': d = a.kind.localeCompare(b.kind) || a.ext.localeCompare(b.ext); break;
       case 'size': d = (a.size ?? -1) - (b.size ?? -1); break;
-      case 'uses': d = a.uses.length - b.uses.length; break;
+      case 'mentions': d = a.uses.length - b.uses.length; break;
       case 'added': d = a.added - b.added; break;
     }
     return d * dir || (b.added - a.added) || a.key.localeCompare(b.key);

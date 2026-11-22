@@ -1,5 +1,5 @@
 // Ties the graph scan, the device store and the Files view together.
-import { type FileEntry, type Row, type Use } from './files.ts';
+import { type FileEntry, type Row } from './files.ts';
 import { scanGraph, keysAnywhere } from './scan.ts';
 import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, type ViewState } from './view.ts';
@@ -17,7 +17,7 @@ function loadState(): ViewState {
   const s = defaultState();
   try {
     const v = JSON.parse(localStorage.getItem(STATE_KEY) ?? '{}');
-    if (v.sort) s.sort = v.sort;
+    if (['name', 'kind', 'size', 'mentions', 'added'].includes(v.sort)) s.sort = v.sort;
     if (typeof v.desc === 'boolean') s.desc = v.desc;
     if (Array.isArray(v.hidden)) s.hidden = new Set(v.hidden);
   } catch { /* defaults */ }
@@ -121,7 +121,7 @@ export class App {
     const state = loadState();
     this.view = new FilesView({
       openFile: (r) => window.open(r.url, '_blank', 'noopener'),
-      openUse: (use, inSidebar) => this.openUse(use, inSidebar),
+      openMentions: (r) => this.openMentions(r),
       deleteFiles: (rows) => this.deleteFiles(rows),
       dateTitle: (ms) => api().util.dateToPageTitle(new Date(ms)),
       stateChanged: () => saveState(state),
@@ -138,11 +138,12 @@ export class App {
     this.view?.destroy(); this.view = null;
   }
 
-  private openUse(use: Use, inSidebar: boolean) {
-    if (inSidebar) { api().ui.rightSidebar.addWindow({ window: { type: 'block', 'block-uid': use.uid } }); return; }
-    // the list is a main-window component: close it, or it stays over the block
-    api().ui.mainWindow.closeComponent(VIEW_ID);
-    api().ui.mainWindow.openBlock({ block: { uid: use.uid } });
+  /** All Pages opens a page's mentions in the right sidebar and stays where it is. For a file, the blocks that hold it. */
+  private async openMentions(row: Row) {
+    const side = api().ui.rightSidebar;
+    // the newest mention ends up on top: each new window goes above the last
+    for (const use of [...row.uses].reverse()) await side.addWindow({ window: { type: 'block', 'block-uid': use.uid } });
+    await side.open();
   }
 
   private async deleteFiles(rows: Row[]) {

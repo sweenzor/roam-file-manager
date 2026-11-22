@@ -70,13 +70,13 @@ const search = async (text) => {
   await roam.page.fill(`${VIEW} .search-input`, text);
   await sleep(400);
 };
-/** The rows on screen as { name, type, size, page, uses, added }. */
+/** The rows on screen as { name, type, size, page, mentions, added }. */
 const rows = () => evalIn((v) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].map((r) => ({
   name: r.querySelector('.rm-pages-title-text')?.textContent.trim(),
   type: r.querySelector('.rfm-col-type')?.textContent.trim(),
   size: r.querySelector('.rfm-col-size')?.textContent.trim(),
-  page: r.querySelector('.rfm-col-page')?.textContent.trim(),
-  uses: r.querySelector('.rfm-col-uses')?.textContent.trim(),
+  page: r.querySelector('.title-children-text')?.textContent.trim(),
+  mentions: r.querySelector('.rfm-col-mentions')?.textContent.trim(),
   added: r.querySelector('.rfm-col-added')?.textContent.trim(),
 })), VIEW);
 const rowOf = async (name) => (await rows()).find((r) => r.name === name);
@@ -154,14 +154,19 @@ try {
   let kept = await rowOf(NAMES.kept), dropped = await rowOf(NAMES.dropped), doc = await rowOf(NAMES.doc);
   check('lists uploaded files by the name they were uploaded with', kept && dropped && doc, [kept, dropped, doc].map((r) => r?.name).join(', '));
   check('shows type and size', kept?.type === 'PNG' && /\d+ B|KB/.test(kept?.size ?? '') && doc?.type === 'TXT' && doc?.size === '1.0 KB', `${kept?.type} ${kept?.size}; ${doc?.type} ${doc?.size}`);
-  check('shows the page and one use', dropped?.page === TEST_PAGE && dropped?.uses === '1', `${dropped?.page}, ${dropped?.uses}`);
-  check('a file on two pages links both and counts two uses', kept?.uses === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.uses}`);
+  check('shows the page and one mention', dropped?.page === TEST_PAGE && dropped?.mentions === '1', `${dropped?.page}, ${dropped?.mentions}`);
+  check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.mentions}`);
   await evalIn(([v, name]) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name).querySelector('.rm-clickable-pill').click(), [VIEW, NAMES.kept]);
-  await sleep(400);
-  const menu = await evalIn(() => [...document.querySelectorAll('.rfm-uses-menu .bp3-menu-item')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
-  check('its count opens a menu of the blocks', menu.length === 2 && menu.some((m) => m.includes('Second use')), menu.join(' | '));
-  await shot('uses-menu');
-  await closePopover();
+  const side = () => evalIn(() => window.roamAlphaAPI.ui.rightSidebar.getWindows().filter((w) => w.type === 'block').map((w) => w['block-uid']));
+  const mine = [made.blocks.kept, made.blocks.kept2];
+  await waitFor('the blocks in the right sidebar', async () => { const w = await side(); return mine.every((u) => w.includes(u)); }, 10000).catch(() => {});
+  const opened = await side();
+  check('its count opens the blocks that hold it in the right sidebar', mine.every((u) => opened.includes(u)), opened.join(', '));
+  check('the list stays open', await evalIn(() => !!document.querySelector('.rfm-view')));
+  await sleep(1500);
+  await shot('mentions-in-sidebar');
+  await evalIn(async (uids) => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const uid of uids) await s.removeWindow({ window: { type: 'block', 'block-uid': uid } }); await s.close(); }, mine);
+  await sleep(800);
   const today = await evalIn(() => window.roamAlphaAPI.util.dateToPageTitle(new Date()));
   check('shows the date added in Roam\'s date format', kept?.added === today, kept?.added);
   await search('');
@@ -184,7 +189,7 @@ try {
   await waitFor('the unused files', async () => (await rows()).some((r) => r.name === NAMES.dropped), 20000);
   let list = await rows();
   check('Unused filter lists the files no block uses any more', list.some((r) => r.name === NAMES.dropped) && list.some((r) => r.name === NAMES.doc) && !list.some((r) => r.name === NAMES.kept), list.map((r) => r.name).filter((n) => n?.includes(RUN)).join(', '));
-  check('an unused file shows 0 uses and no page', (await rowOf(NAMES.dropped))?.uses === '0' && !(await rowOf(NAMES.dropped))?.page);
+  check('an unused file shows 0 mentions and no page', (await rowOf(NAMES.dropped))?.mentions === '0' && !(await rowOf(NAMES.dropped))?.page);
   check('the deleted blocks did not delete the files', (await stored(urls.dropped)) === 200 && (await stored(urls.doc)) === 200);
   await shot('unused');
 
@@ -202,7 +207,7 @@ try {
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
   await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
   const dialog = await evalIn(() => document.querySelector('.confirmation-content-dialog').innerText);
-  check('asks before deleting, naming the files', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc), dialog.split('\n')[0]);
+  check('asks before deleting, naming the files and their mentions', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc) && (dialog.match(/0 Mentions, /g) ?? []).length === 2, dialog.split('\n')[0]);
   await shot('delete-confirm');
   await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
   await sleep(1500);
@@ -235,13 +240,6 @@ try {
   list = await rows();
   check('the list keeps the file in use and drops the deleted ones', list.some((r) => r.name === NAMES.kept) && !list.some((r) => r.name === NAMES.dropped || r.name === NAMES.doc));
   await search('');
-
-  // ---- the page link opens the block ----
-  await search(NAMES.kept);
-  await roam.page.click(`${VIEW} .rfm-page-link`);
-  await waitFor('the block to open', () => evalIn((uids) => !document.querySelector('.rfm-view') && uids.some((u) => location.hash.endsWith(u)), [made.blocks.kept, made.blocks.kept2]), 10000).then(
-    () => check('the page link opens the block that holds the file', true), () => check('the page link opens the block that holds the file', false));
-  await shot('block-opened');
 
   // ---- what it has seen survives a restart ----
   for (const uid of [made.blocks.kept, made.blocks.kept2]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
