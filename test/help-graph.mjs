@@ -93,6 +93,17 @@ await page.screenshot({ path: path.join(OUT, '3b-delete-in-use.png') });
 await page.click('.confirmation-content-dialog .cancel-button');
 await page.waitForTimeout(300);
 check('Cancel closes the confirmation', await page.evaluate(() => !document.querySelector('.confirmation-content-dialog')));
+// the mentions count in the confirmation: a click shows the blocks, the dialog goes away and the tick stays
+await page.click('.rfm-view .bp3-icon-trash');
+await page.waitForSelector('.confirmation-content-dialog');
+const chip = await page.evaluate(() => document.querySelector('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill')?.textContent);
+check('the confirmation shows each file\'s mentions count', +chip > 0, chip);
+await page.click('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill');
+await page.waitForFunction((n) => window.roamAlphaAPI.ui.rightSidebar.getWindows().filter((w) => w.type === 'block').length === n, +chip, { timeout: 10000 }).catch(() => {});
+check('a click on it opens the blocks, closes the confirmation and keeps the tick', await page.evaluate((n) => window.roamAlphaAPI.ui.rightSidebar.getWindows().filter((w) => w.type === 'block').length === n
+  && !document.querySelector('.confirmation-content-dialog') && document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:checked').length === 1, +chip));
+await page.evaluate(async () => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const w of s.getWindows()) await s.removeWindow({ window: { type: w.type, 'block-uid': w['block-uid'] } }); await s.close(); });
+await page.waitForTimeout(800);
 
 // a file in several blocks: one count, the pages in grey after the name, and a click opens the blocks in the right sidebar
 await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:not([disabled])').click());
@@ -132,6 +143,21 @@ await page.screenshot({ path: path.join(OUT, '5-hover-preview.png') });
 await page.mouse.move(700, 60);
 await page.waitForTimeout(300);
 check('the preview goes away with the pointer', await page.evaluate(() => !document.querySelector('.rfm-preview-img')));
+// hovering a video's icon plays it, and the preview stays while the pointer is on it
+await page.fill('.rfm-view .search-input', 'mp4');
+await page.click('.rfm-view [data-col="size"] .sort-button:not(.desc)');
+await page.waitForTimeout(500);
+await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-thumb-icon');
+await page.waitForFunction(() => { const v = document.querySelector('video.rfm-preview-video'); return v && v.readyState >= 2 && v.currentTime > 0.2 && !v.paused && v.muted && v.controls; }, null, { timeout: 30000 })
+  .then(() => check('hovering a video\'s icon plays the video, without sound', true), () => check('hovering a video\'s icon plays the video, without sound', false));
+await page.screenshot({ path: path.join(OUT, '5b-video-preview.png') });
+const onVideo = await page.evaluate(() => { const r = document.querySelector('video.rfm-preview-video')?.getBoundingClientRect(); return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+if (onVideo) await page.mouse.move(onVideo.x, onVideo.y, { steps: 5 });
+await page.waitForTimeout(800);
+check('the video stays while the pointer is on it', await page.evaluate(() => !!document.querySelector('video.rfm-preview-video')));
+await page.mouse.move(1250, 780, { steps: 3 });
+await page.waitForTimeout(600);
+check('and goes away with the pointer', await page.evaluate(() => !document.querySelector('video.rfm-preview-video')));
 await page.fill('.rfm-view .search-input', '');
 await page.click('.rfm-view [data-col="added"] .sort-button.desc');
 
