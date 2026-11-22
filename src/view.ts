@@ -445,9 +445,10 @@ export class FilesView {
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const open = !isEncrypted(r.key) && r.size != null && r.size <= GRID_THUMB_MAX;
     const pic = r.kind === 'image' && open ? h('img', { src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
-      // a video plays in its tile with the browser's own controls. Only its header is fetched before that:
-      // with nothing fetched, Roam's desktop app draws the player's loading circle over the still for good
-      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'metadata', controls: true, playsinline: true })
+      // a video plays in its tile with the browser's own controls; nothing of it is fetched until then. The
+      // controls come when the pointer does (or with a click): at rest Roam's desktop app draws the player's
+      // loading circle over the still for good, so a tile at rest is the still alone
+      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'none', playsinline: true })
       : icon(KIND_ICON[r.kind]);
     // its picture is the shared still (videoStillUrl); a video this browser has no decoder for keeps the icon and gets no player
     if (pic instanceof HTMLVideoElement) videoStillUrl(r, () => pic.isConnected).then((s) => {
@@ -456,7 +457,9 @@ export class FilesView {
     // a video this browser can't play gets its icon, as a file with no picture does
     if (pic instanceof HTMLVideoElement) pic.addEventListener('error', () => pic.replaceWith(icon(KIND_ICON[r.kind])));
     const n = r.uses.length;
-    return h('div', { class: 'rfm-tile' },
+    const arm = () => { if (pic instanceof HTMLVideoElement && pic.isConnected) pic.controls = true; };
+    if (pic instanceof HTMLVideoElement) pic.addEventListener('click', () => { if (!pic.controls) { arm(); void pic.play().catch(() => {}); } });
+    return h('div', { class: 'rfm-tile', onPointerenter: arm },
       h('div', { class: 'rfm-tile-pic', style: { height: `${Math.round(this.tileW * 0.75)}px` }, onClick: (e: Event) => { if (!(e.target as HTMLElement).closest('label, video')) this.actions.openFile(r); } }, pic,
         h('label', { class: `bp3-control bp3-checkbox rfm-tile-check${r.own ? '' : ' bp3-disabled'}` }, cb, h('span', { class: 'bp3-control-indicator' }))),
       h('a', { class: 'rm-pages-title-text rfm-tile-name', onClick: () => this.actions.openFile(r) }, h('strong', {}, r.name)),

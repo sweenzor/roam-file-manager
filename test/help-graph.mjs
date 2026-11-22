@@ -249,7 +249,10 @@ const mb = (t) => parseFloat(t) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[t.split(' '
 check('the menu sorts the tiles', tileSizes.length === 3 && mb(tileSizes[0]) >= mb(tileSizes[1]) && mb(tileSizes[1]) >= mb(tileSizes[2]) && mb(tileSizes[0]) > 1, `${tileSizes.join(', ')} (list had ${sizes.slice(0, 3).join(', ')})`);
 // a video plays in its tile
 await page.fill('.rfm-view .search-input', 'mp4');
-await page.waitForFunction(() => { const v = document.querySelector('.rfm-view .rfm-tile video'); return v && v.readyState >= 2; }, null, { timeout: 30000 }).catch(() => {});
+await page.waitForSelector('.rfm-view .rfm-tile video', { timeout: 30000 }).catch(() => {});
+const atRest = await page.evaluate(() => { const v = document.querySelector('.rfm-view .rfm-tile video'); return v ? `${v.controls} ${v.preload} ${v.readyState}` : 'no video'; });
+check('a video tile at rest is its still alone: no controls, nothing fetched', atRest === 'false none 0', atRest);
+await page.hover('.rfm-view .rfm-tile video');
 const played = await page.evaluate(async () => {
   const v = document.querySelector('.rfm-view .rfm-tile video');
   if (!v || !v.controls) return 'no video with controls';
