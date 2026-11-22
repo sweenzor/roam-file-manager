@@ -264,18 +264,17 @@ async function main() {
   await waitFor('the video to go away', () => evalIn(() => !document.querySelector('.rfm-preview')), 5000);
 
   // 7. A mentions count opens the blocks in the right sidebar, and the list stays.
-  const WIDE = 1560; // a wider window, so the list and the sidebar both have room
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDE, height: HEIGHT, deviceScaleFactor: 2, mobile: false });
-  await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.close());
+  await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.close()); // room for both
   await sleep(1000);
   await clickInRow(PLAN, '.rm-clickable-pill');
   await waitFor('the blocks in the right sidebar', () => evalIn((uids) => { const w = window.roamAlphaAPI.ui.rightSidebar.getWindows().map((x) => x['block-uid']); return uids.every((u) => w.includes(u)); }, demo.blocks[PLAN]), 10000);
   await waitFor('the pictures in the sidebar', () => evalIn(() => { const imgs = [...document.querySelectorAll('#right-sidebar img')]; return imgs.length >= 1 && imgs.every((i) => i.complete && i.naturalWidth > 0); }), 30000).catch((e) => log('note:', e.message));
   await sleep(1500);
   await parkMouse();
-  await snap('mentions', { x: 0, y: 0, width: WIDE, height: HEIGHT });
+  const over = await evalIn(() => { const sc = document.querySelector('.rfm-scroller'); return sc.scrollWidth - sc.clientWidth; });
+  if (over > 0) throw new Error(`the list runs ${over}px off the edge next to the right sidebar`);
+  await snap('mentions', { x: 0, y: 0, width: WIDTH, height: HEIGHT });
   await evalIn(async (uids) => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const uid of uids) await s.removeWindow({ window: { type: 'block', 'block-uid': uid } }); await s.close(); }, demo.blocks[PLAN]);
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false });
   await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.open());
   await sleep(1000);
 

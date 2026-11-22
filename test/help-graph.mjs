@@ -128,6 +128,16 @@ await page.waitForFunction((n) => window.roamAlphaAPI.ui.rightSidebar.getWindows
   .then(() => check('its count opens every block that holds it in the right sidebar', true), () => check('its count opens every block that holds it in the right sidebar', false));
 check('the list stays open', await page.evaluate(() => !!document.querySelector('.rfm-view')));
 await page.waitForTimeout(1500);
+// next to the right sidebar the columns close up: nothing runs off the edge, and names keep their room
+await page.evaluate(() => window.roamAlphaAPI.ui.leftSidebar.close());
+await page.waitForTimeout(1000);
+const fit = await page.evaluate(() => {
+  const sc = document.querySelector('.rfm-scroller'), head = document.querySelector('.rfm-view .rm-pages-row-header');
+  return { view: document.querySelector('.rfm-view').clientWidth, over: Math.max(sc.scrollWidth - sc.clientWidth, head.scrollWidth - head.clientWidth), name: Math.round(document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rm-pages-title-col').getBoundingClientRect().width) };
+});
+check('with the right sidebar open the columns fit and names keep their room', fit.view < 1000 && fit.over <= 0 && fit.name >= 200, JSON.stringify(fit));
+await page.evaluate(() => window.roamAlphaAPI.ui.leftSidebar.open());
+await page.waitForTimeout(800);
 await page.screenshot({ path: path.join(OUT, '4-mentions-in-sidebar.png') });
 await page.evaluate(async () => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const w of s.getWindows()) await s.removeWindow({ window: { type: w.type, 'block-uid': w['block-uid'] } }); await s.close(); });
 await page.waitForTimeout(800);

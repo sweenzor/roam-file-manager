@@ -7,6 +7,8 @@ import { getStill, putStill } from './store.ts';
 import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
 
 export const ROW_H = 39;
+/** Below this width (the right sidebar open on a small window) the columns close up, so that names keep their room. */
+const NARROW = 1000;
 const OVERSCAN = 8;
 /** Roam stores no thumbnails, so a picture's preview is the picture itself: only small ones are shown. */
 const THUMB_MAX = 1.5 * 1024 * 1024;
@@ -34,10 +36,10 @@ export const STYLES = `
 .rfm-view .rm-pages-title-text{flex:0 1 auto;min-width:40px;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .rfm-view .title-children-text{flex:0 9999 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .rfm-view .rm-pages-col{line-height:22px}
-.rfm-view .rfm-col-type{flex-basis:80px}
-.rfm-view .rfm-col-size{flex-basis:90px}
-.rfm-view .rfm-col-mentions{flex-basis:110px}
-.rfm-view .rfm-col-added{flex-basis:170px}
+.rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-type{flex-basis:72px}
+.rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-size{flex-basis:70px}
+.rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}
+.rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-added{flex-basis:146px;white-space:nowrap}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
@@ -235,6 +237,9 @@ export class FilesView {
   }
 
   private layout() {
+    // All Pages gives every column 140px and the title what is left, down to 140px. A file's name
+    // shares that with its picture, so with little room the columns give some of theirs back.
+    this.el.classList.toggle('rfm-narrow', this.el.clientWidth < NARROW);
     const top = this.scroller.getBoundingClientRect().top;
     const room = window.innerHeight - top - 16;
     this.scroller.style.height = `${Math.max(ROW_H * 4, room)}px`;
