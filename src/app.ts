@@ -1,6 +1,6 @@
 // Ties the graph scan, the device store and the Files view together.
 import { type FileEntry, type Row } from './files.ts';
-import { scanGraph, keysAnywhere } from './scan.ts';
+import { scanGraph, keysAnywhere, hasBackend } from './scan.ts';
 import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, type ViewState } from './view.ts';
 import { kindOf, extOf, storedName } from './files.ts';
@@ -11,6 +11,10 @@ const graphName = (): string => api().graph.name;
 /** Files uploaded to this graph live under imgs/app/<graph>/. Only those can be unused or deleted:
  *  a file pasted from another graph belongs to that graph. */
 const ownPrefix = () => `imgs/app/${graphName()}/`;
+
+/** Roam's backend can be a moment behind the window (a file pasted a second ago): where it finds the
+ *  files, an open list reads the graph again after these many ms. */
+const READ_AGAIN = [3000, 10000];
 
 /** Opening the list with this many sizes and dates to fetch shows the progress box at once ... */
 const PROGRESS_AT_ONCE = 50;
@@ -38,6 +42,7 @@ export class App {
   private rows: Row[] = [];
   private fetching: AbortController | null = null;
   private scanning: Promise<void> | null = null;
+  private again: number[] = [];
 
   /** Scans the graph, records what it found as seen, and builds the rows. */
   scan(): Promise<void> {
@@ -46,8 +51,8 @@ export class App {
 
   private async doScan() {
     const graph = graphName(), own = ownPrefix(), now = Date.now();
-    const files = await scanGraph();
     const seen = await getSeen(graph).catch(() => [] as Seen[]);
+    const files = await scanGraph(seen.length > 0);
     const seenBy = new Map(seen.map((s) => [s.key, s]));
     const all0 = [...files.keys(), ...seen.map((s) => s.key)];
     const missing = all0.filter((k) => !this.meta.has(k));
@@ -149,12 +154,21 @@ export class App {
     if (this.rows.length) this.view.setRows(this.rows);
     // the list may be left before the graph has been read (a click on Files by accident): then nothing is fetched
     const view = this.view;
-    this.scan().then(() => { if (this.view !== view) return; view.setRows(this.rows); return this.fillMeta(); }).catch((e) => console.warn('[roam-file-manager]', e));
+    const warn = (e: unknown) => console.warn('[roam-file-manager]', e);
+    const listed = () => this.rows.map((r) => `${r.key} ${r.unused ? 1 : 0} ${r.uses.map((u) => u.uid).sort().join(' ')}`).sort().join('\n');
+    this.scan().then(() => { if (this.view !== view) return; view.setRows(this.rows); return this.fillMeta(); }).catch(warn);
+    if (hasBackend()) {
+      this.again = READ_AGAIN.map((ms) => window.setTimeout(() => {
+        const before = listed();
+        this.scan().then(() => { if (this.view !== view || listed() === before) return; view.setRows(this.rows); return this.fillMeta(); }).catch(warn);
+      }, ms));
+    }
   }
 
   get mounted() { return !!this.view; }
 
   unmount() {
+    for (const t of this.again.splice(0)) window.clearTimeout(t);
     this.fetching?.abort(); this.fetching = null;
     this.view?.destroy(); this.view = null;
   }

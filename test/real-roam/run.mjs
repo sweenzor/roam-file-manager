@@ -151,13 +151,20 @@ try {
   check('Roam stored the four test files', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
 
   // ---- they are listed ----
+  // the blocks that hold files are found by Roam's backend (roamAlphaAPI.data.backend.q), not in the window
+  let asked = 0;
+  roam.page.on('request', (r) => { if (/api\.roamresearch\.com\/api\/graph\/[^/]+\/q$/.test(r.url().split('?')[0])) asked++; });
+  const openedAt = Date.now();
   await openAllFiles();
   await search(`fm-ci-`);
   await waitFor('the test files in the list, with sizes', async () => { const r = await rows(); return r.length >= 3 && r.filter((x) => x.name?.includes(RUN)).every((x) => x.size); }, 30000);
+  check('files uploaded a moment ago are listed, found by Roam\'s backend', asked >= 1, `${asked} queries, listed ${Date.now() - openedAt} ms after Files was opened`);
   let kept = await rowOf(NAMES.kept), dropped = await rowOf(NAMES.dropped), doc = await rowOf(NAMES.doc);
   check('lists uploaded files by the name they were uploaded with', kept && dropped && doc, [kept, dropped, doc].map((r) => r?.name).join(', '));
+  await search(NAMES.doc);
   const counted = await evalIn((v) => document.querySelector(`${v} .rfm-count`)?.textContent ?? '', VIEW);
-  check('the toolbar counts the files: shown / all while searching', new RegExp(`^${(await rows()).length} / [\\d,]+ Files$`).test(counted), counted);
+  check('the toolbar counts the files: shown / all while searching', /^1 \/ [\d,]+ Files$/.test(counted) && +counted.split(' / ')[1].replace(/\D/g, '') >= 4, counted);
+  await search('fm-ci-');
   check('shows type and size', kept?.type === 'PNG' && /\d+ B|KB/.test(kept?.size ?? '') && doc?.type === 'TXT' && doc?.size === '1.0 KB', `${kept?.type} ${kept?.size}; ${doc?.type} ${doc?.size}`);
   check('shows the page and one mention', dropped?.page === TEST_PAGE && dropped?.mentions === '1', `${dropped?.page}, ${dropped?.mentions}`);
   check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.mentions}`);

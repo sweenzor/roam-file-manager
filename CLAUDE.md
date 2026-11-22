@@ -25,7 +25,7 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 ## Architecture
 
 - `src/files.ts`: pure functions. Finds Roam-hosted file URLs in block text, groups them by storage path, sorting, size format.
-- `src/scan.ts`: one datalog query for every block whose text has a firebasestorage URL.
+- `src/scan.ts`: finds the blocks whose text has a firebasestorage URL. Which blocks: one datalog query, asked of Roam's backend (`roamAlphaAPI.data.backend.q`, off the window's thread; Roam runs it in the window itself for an encrypted, local or offline graph). The blocks themselves: `pull_many` in the window, 100 at a time with a pause between. The check before a delete (`keysAnywhere`) always searches in the window.
 - `src/store.ts`: IndexedDB `roam-file-manager`: `meta` (size, upload time, original name from Firebase Storage metadata) and `seen` (files found in blocks, per graph).
 - `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan.
 - `src/view.ts`: the table. `videoStill(row, cls)` / `videoStillUrl(row)` give a video's still (first frame, decoded once, kept in IndexedDB; the icon when this browser has no decoder, e.g. HEVC on Linux): use them wherever a video needs a picture. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows.
@@ -37,6 +37,14 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 - The URL without its query string returns JSON metadata (size, timeCreated, `metadata.file-name`), no sign-in needed.
 - Listing a graph's folder is denied (403), so unused files can only be found by remembering files seen in blocks.
 - `roamAlphaAPI.file.upload` returns markdown, not a bare URL. `file.delete({ url })` needs the bare URL.
+
+## Reading a large graph (measured in the help graph: 13,495 blocks, 541 with a file)
+
+- One query in the window for the file blocks with their pages froze Roam for about 30 ms: 7 ms to read every block's text (0.55 ms per 1,000 blocks, grows with the graph) and the rest to join the 541 matches.
+- `data.backend.q` answers in about 290 ms with the window free, then parsing the answer takes about 13 ms for 541 uids (40 ms for 13,495). `pull_many` of 100 blocks by uid takes 4 ms. So the freeze no longer grows with the graph, only with the number of file blocks.
+- The backend can lag the window, so an open list reads the graph again 3 s and 10 s after opening (`READ_AGAIN` in `src/app.ts`).
+- Slicing the query by pages doesn't help: datascript scans every `:block/page` datom for each slice.
+- Not measured on a large graph: the test account has no plan, so it can't make a graph (a local graph opened by its address is read-only). Roam's engine scales linearly with rows up to 2 million (made-up rows passed in as a query input).
 
 ## Rules
 

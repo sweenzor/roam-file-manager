@@ -19,6 +19,10 @@ const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 })).newPage();
 page.on('pageerror', (e) => console.log('[pageerror]', e.message.slice(0, 300)));
 page.on('console', (m) => { if (m.text().includes('roam-file-manager')) console.log('[page]', m.text().slice(0, 300)); });
+// Roam's backend, asked to run a query (roamAlphaAPI.data.backend.q)
+const BACKEND = /api\.roamresearch\.com\/api\/graph\/[^/]+\/q$/;
+const asked = [];
+page.on('request', (r) => { if (BACKEND.test(r.url().split('?')[0])) asked.push(Date.now()); });
 await page.goto('https://roamresearch.com/#/app/help', { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
 await page.waitForTimeout(3000);
@@ -74,6 +78,7 @@ const info = () => page.evaluate(() => {
 });
 let i = await info();
 check('lists the graph\'s files', i.total > 100, `${i.total} files`);
+check('the files were found by Roam\'s backend, off the window\'s thread', asked.length >= 1, `${asked.length} queries`);
 const count = () => page.evaluate(() => { const c = document.querySelector('.rfm-view .rm-pages-toolbar .toolbar-action-button-group .rfm-count'); return c ? c.textContent : null; });
 const ALL = i.total;
 check('the toolbar counts every file', (await count()) === `${ALL} Files`, await count());
@@ -241,8 +246,11 @@ check('the header row measures the same as the one of All Pages', ownHeader === 
 check('All Pages closes the list', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('#all-pages-search')));
 
 // A sort that takes a while (tens of thousands of files; here: made slow) puts the same box up while it runs.
+const found = page.waitForResponse((r) => BACKEND.test(r.url().split('?')[0]), { timeout: 20000 }).catch(() => {});
 await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
+await found; // the list is drawn again once the graph has been read: after that, only the clicks below sort it
+await page.waitForTimeout(500);
 await page.evaluate(() => {
   const sort = Array.prototype.sort;
   window.__realSort = sort;
@@ -295,9 +303,12 @@ check('unload removes the row, the view and the styles', await page.evaluate(() 
   await page.addStyleTag({ content: '.bp3-portal .bp3-toast-container{display:none!important}' });
   await page.evaluate(async (code) => {
     // the look through the graph for files takes a while on a big graph: here, 700 ms
-    const d = window.roamAlphaAPI.data, q = d.async.q.bind(d.async);
+    const d = window.roamAlphaAPI.data;
     window.__slowScan = true;
-    d.async.q = async (query, ...a) => { if (window.__slowScan && String(query).includes('firebasestorage')) await new Promise((r) => setTimeout(r, 700)); return q(query, ...a); };
+    for (const o of [d.async, d.backend]) {
+      const q = o.q.bind(o);
+      o.q = async (query, ...a) => { if (window.__slowScan && String(query).includes('firebasestorage')) await new Promise((r) => setTimeout(r, 700)); return q(query, ...a); };
+    }
     const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     window.__ext = (await import(url)).default;
     window.__ext.onload({ extensionAPI: {} });
@@ -349,6 +360,26 @@ check('unload removes the row, the view and the styles', await page.evaluate(() 
   await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
   await page.waitForTimeout(2500);
   check('after a restart almost nothing is fetched again', fetches.length - before <= 12 && !(await page.evaluate(() => !!document.querySelector('.rfm-loader'))), `${fetches.length - before} requests`);
+
+  // Roam's backend out of reach (offline, or a graph that has none): Roam answers the query in the window
+  const total = () => page.evaluate(() => Math.round((document.querySelector('.rfm-scroller')?.firstElementChild.offsetHeight ?? 0) / 39));
+  const withBackend = await total();
+  await page.click('.rm-left-sidebar__daily-notes');
+  await page.waitForFunction(() => !document.querySelector('.rfm-view'));
+  await page.route('**/api.roamresearch.com/**', (r) => r.abort());
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
+  await page.waitForTimeout(3000);
+  await page.evaluate(async (code) => {
+    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    window.__ext = (await import(url)).default;
+    window.__ext.onload({ extensionAPI: {} });
+    await window.roamAlphaAPI.ui.leftSidebar.open();
+  }, code);
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
+  await page.waitForTimeout(1500);
+  check('without Roam\'s backend the same files are found in the window', withBackend > 100 && (await total()) === withBackend && errors.length === 0, `${await total()} and ${withBackend} files, ${errors.join(' | ')}`);
 }
 
 await browser.close();
