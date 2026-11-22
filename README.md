@@ -20,8 +20,13 @@ Nothing in your graph is changed, and nothing is deleted unless you confirm it.
 1. Install **File Manager** from Roam Depot.
 2. Click **Files** in the left sidebar, under **All Pages**.
 
-The first time the list opens it fetches each file's size and upload date from Roam's file storage. After
-that they're kept on your device and the list opens at once.
+The first time the list opens it fetches each file's size, upload date and name from Roam's file
+storage. You can use the list straight away. On a graph with many files, a bar above the list shows how
+far that has got; sorting by size or name is complete once the bar is gone.
+
+![The list just after it was opened for the first time, with a progress bar above it and some sizes still to come](https://raw.githubusercontent.com/sweenzor/roam-file-manager/0e19c7bd5bf47cb6e85a8677261a5806e8c64877/docs/images/first-open.png)
+
+After that it's all kept on your device, and the list opens at once.
 
 ## The list
 

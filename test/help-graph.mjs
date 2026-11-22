@@ -36,6 +36,17 @@ await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)', 
 const t0 = Date.now();
 await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].slice(1, 12).every((e) => e.textContent), null, { timeout: 60000 });
 console.log('sizes on the first screen after', Date.now() - t0, 'ms');
+// several hundred files to fetch sizes for: past a second, a bar shows how far that has got
+const bar = () => page.evaluate(() => { const m = document.querySelector('.rfm-view .rfm-progress .bp3-progress-meter'); return m ? parseInt(m.style.width, 10) : null; });
+check('nothing shows progress in the first second', (await bar()) === null && Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+await page.waitForFunction(() => !!document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 5000 }).catch(() => {});
+const early = await bar();
+await page.waitForTimeout(1500);
+const later = await bar();
+check('a long first load shows a progress bar that moves on', early !== null && early > 0 && (later === null || later > early), `${early}% then ${later}%`);
+await page.screenshot({ path: path.join(OUT, '0-first-load.png') });
+await page.waitForFunction(() => !document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 60000 })
+  .then(() => check('the bar goes away when every file has its size', true), () => check('the bar goes away when every file has its size', false));
 const info = () => page.evaluate(() => {
   const rows = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')];
   const sc = document.querySelector('.rfm-scroller');

@@ -167,8 +167,8 @@ const downTo = async (also = null, pad = 24) => {
   const bottom = Math.max(list ? list.y + list.height : 0, more ? more.y + more.height : 0);
   return { x: 0, y: 0, width: WIDTH, height: Math.min(HEIGHT, Math.ceil(bottom + pad)) };
 };
-async function snap(name, clip) {
-  await sleep(500);
+async function snap(name, clip, settle = 500) {
+  await sleep(settle);
   // Straight from the page's own session: Playwright's screenshot puts its own 1x viewport back first.
   const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
   fs.writeFileSync(path.join(OUT, `${name}.png`), Buffer.from(data, 'base64'));
@@ -187,8 +187,19 @@ async function main() {
   const VIDEO = demo.names.find((n) => n.startsWith('walkthrough-route.'));
   const mine = (list) => list.filter((r) => demo.names.includes(r.name));
 
-  // The list has to have seen a file in a block before it can know that no block holds it any more.
+  // The first time the list opens it fetches every file's size, date and name. On a slow connection
+  // (here: one made slow for this picture) that takes long enough for the progress bar to show.
+  await cdp.send('Network.enable');
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 3000, downloadThroughput: -1, uploadThroughput: -1 });
   await openFiles();
+  await waitFor('the progress bar', () => evalIn((v) => parseInt(document.querySelector(`${v} .rfm-progress .bp3-progress-meter`)?.style.width ?? '0', 10) >= 25, VIEW), 20000, 100);
+  await parkMouse();
+  await snap('first-open', await boxOf(`${VIEW} .rm-pages-toolbar, ${VIEW} .rfm-progress, ${VIEW} .rm-pages-row-header, ${ROW}`, 12), 0);
+  if (!(await evalIn((v) => !!document.querySelector(`${v} .rfm-progress`), VIEW))) throw new Error('the progress bar was gone before its picture was taken');
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await cdp.send('Network.disable');
+
+  // The list has to have seen a file in a block before it can know that no block holds it any more.
   await waitFor('every demo file in the list', async () => mine(await rows()).length === demo.names.length, 30000);
   for (const name of UNUSED) for (const uid of demo.blocks[name]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
   await evalIn(async (title) => { const api = window.roamAlphaAPI; const uid = api.data.q('[:find ?u . :in $ ?t :where [?p :node/title ?t] [?p :block/uid ?u]]', title); if (uid) await api.data.page.delete({ page: { uid } }); }, UNUSED_PAGE);

@@ -41,6 +41,8 @@ export const STYLES = `
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-added{flex-basis:146px;white-space:nowrap}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
+.rfm-view .table{position:relative}
+.rfm-view .rfm-progress{position:absolute;left:0;right:0;top:-6px;height:4px}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
 .rfm-delete-content{display:flex;flex-direction:column;max-height:min(440px,60vh) !important}
@@ -180,6 +182,8 @@ export class FilesView {
   private drawn = new Map<number, HTMLDivElement>();
   private ro: ResizeObserver;
   private popover: HTMLElement | null = null;
+  private table: HTMLDivElement;
+  private bar: HTMLDivElement | null = null;
 
   constructor(private actions: ViewActions, public state: ViewState = defaultState()) {
     const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search Files', value: state.query,
@@ -199,7 +203,8 @@ export class FilesView {
       ...COLS.map((c) => this.headCell(c)));
     this.spacer = h('div', { style: { position: 'relative', width: '100%' } });
     this.scroller = h('div', { class: 'rfm-scroller', onScroll: () => { this.hidePreview(); this.draw(); } }, this.spacer);
-    this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, h('div', { class: 'table' }, this.header, this.scroller));
+    this.table = h('div', { class: 'table' }, this.header, this.scroller);
+    this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, this.table);
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
     this.applyHidden();
@@ -216,6 +221,16 @@ export class FilesView {
 
   /** Sizes, names or upload dates arrived for some rows: sort again and redraw, staying in place. */
   updated() { this.refresh(); }
+
+  /** How far a long fetch of sizes and dates has got (0 to 1): a thin bar in the gap above the table. null when there is nothing to wait for. */
+  progress(done: number | null) {
+    if (done == null || done >= 1) { this.bar?.remove(); this.bar = null; return; }
+    if (!this.bar) {
+      this.bar = h('div', { class: 'bp3-progress-bar bp3-intent-primary bp3-no-stripes rfm-progress' }, h('div', { class: 'bp3-progress-meter' }));
+      this.table.prepend(this.bar);
+    }
+    (this.bar.firstElementChild as HTMLElement).style.width = `${Math.round(done * 100)}%`;
+  }
 
   /** The rows as listed, and the keys of those on screen now. */
   order(): Row[] { return this.shown; }
