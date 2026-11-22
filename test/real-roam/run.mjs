@@ -151,11 +151,30 @@ try {
   check('Roam stored the four test files', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
 
   // ---- they are listed ----
+  const openedAt = Date.now();
   await openAllFiles();
   await search(`fm-ci-`);
   await waitFor('the test files in the list, with sizes', async () => { const r = await rows(); return r.length >= 3 && r.filter((x) => x.name?.includes(RUN)).every((x) => x.size); }, 30000);
+  check('files uploaded a moment ago are listed at once', Date.now() - openedAt < 15000, `listed, with sizes, ${Date.now() - openedAt} ms after Files was opened`);
+  // for the record: how Roam's backend (roamAlphaAPI.data.backend.q) answers the same question about blocks this new
+  log('backend:', await evalIn(async () => {
+    const d = window.roamAlphaAPI.data, Q = '[:find [?uid ...] :where [?b :block/string ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/uid ?uid]]';
+    if (!d.backend?.q) return 'no backend.q';
+    const out = [];
+    for (const wait of [0, 5000, 15000]) {
+      await new Promise((r) => setTimeout(r, wait));
+      const t = performance.now();
+      try { const r = await Promise.race([d.backend.q(Q), new Promise((_, rej) => setTimeout(() => rej(new Error('no answer in 20 s')), 20000))]); out.push(`${r?.length} blocks from the backend in ${Math.round(performance.now() - t)} ms, ${d.q(Q).length} in the window`); }
+      catch (e) { out.push(`failed after ${Math.round(performance.now() - t)} ms: ${String(e?.message ?? e).slice(0, 80)}`); }
+    }
+    return out.join('; ');
+  }).catch((e) => `not measured: ${e.message.split('\n')[0]}`));
   let kept = await rowOf(NAMES.kept), dropped = await rowOf(NAMES.dropped), doc = await rowOf(NAMES.doc);
   check('lists uploaded files by the name they were uploaded with', kept && dropped && doc, [kept, dropped, doc].map((r) => r?.name).join(', '));
+  await search(NAMES.doc);
+  const counted = await evalIn((v) => document.querySelector(`${v} .rfm-count`)?.textContent ?? '', VIEW);
+  check('the toolbar counts the files: shown / all while searching', /^1 \/ [\d,]+ Files$/.test(counted) && +counted.split(' / ')[1].replace(/\D/g, '') >= 4, counted);
+  await search('fm-ci-');
   check('shows type and size', kept?.type === 'PNG' && /\d+ B|KB/.test(kept?.size ?? '') && doc?.type === 'TXT' && doc?.size === '1.0 KB', `${kept?.type} ${kept?.size}; ${doc?.type} ${doc?.size}`);
   check('shows the page and one mention', dropped?.page === TEST_PAGE && dropped?.mentions === '1', `${dropped?.page}, ${dropped?.mentions}`);
   check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.mentions}`);

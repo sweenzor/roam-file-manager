@@ -1,18 +1,40 @@
 // Reads the graph: every block whose text holds a Roam-hosted file URL, with its page.
 import { collect, findRefs, storageKey, type BlockRow, type FileEntry } from './files.ts';
 
-const QUERY = `[:find ?uid ?s ?ct ?pu ?pt
+const NEEDLE = 'firebasestorage.googleapis.com';
+// Which blocks hold a file: the one step that has to look at every block's text.
+const FIND = `[:find [?uid ...]
   :where [?b :block/string ?s]
-         [(clojure.string/includes? ?s "firebasestorage.googleapis.com")]
-         [?b :block/uid ?uid]
-         [(get-else $ ?b :create/time 0) ?ct]
-         [?b :block/page ?p] [?p :block/uid ?pu] [?p :node/title ?pt]]`;
+         [(clojure.string/includes? ?s "${NEEDLE}")]
+         [?b :block/uid ?uid]]`;
+const BLOCK = '[:block/uid :block/string :create/time {:block/page [:block/uid :node/title]}]';
+const CHUNK = 100;
 
+const pause = () => new Promise<void>((r) => setTimeout(r));
+
+/** Every block that holds a file, with its page.
+ *
+ *  Finding which blocks is the one step that reads every block's text, and Roam's window does nothing
+ *  else while it runs: about 0.5 ms per 1,000 blocks (measured). So that query asks for nothing but
+ *  the blocks' uids, and the blocks themselves are then read a hundred at a time with a pause between.
+ *  (One query for everything took four times as long in one piece.)
+ *
+ *  Roam's backend can run the query off the window's thread (roamAlphaAPI.data.backend.q), but it
+ *  answers from its own copy of the graph, which can be behind the window's, and takes 0.3 s or more
+ *  to answer. A list of files has to show the graph as it is now, so the window does the search. */
 export async function scanGraph(): Promise<Map<string, FileEntry>> {
-  const api = (window as any).roamAlphaAPI;
-  const rows: [string, string, number, string, string][] = api.data.async?.q
-    ? await api.data.async.q(QUERY) : api.data.q(QUERY);
-  return collect(rows.map(([uid, text, time, pageUid, pageTitle]): BlockRow => ({ uid, text, time, pageUid, pageTitle })));
+  const d = (window as any).roamAlphaAPI.data;
+  const uids: string[] = (d.async?.q ? await d.async.q(FIND) : d.q(FIND)) ?? [];
+  const rows: BlockRow[] = [];
+  for (let i = 0; i < uids.length; i += CHUNK) {
+    if (i) await pause();
+    for (const b of d.pull_many(BLOCK, uids.slice(i, i + CHUNK).map((u) => [':block/uid', u])) ?? []) {
+      const page = b?.[':block/page'];
+      if (typeof b?.[':block/string'] !== 'string' || !page?.[':block/uid'] || page[':node/title'] == null) continue;
+      rows.push({ uid: b[':block/uid'], text: b[':block/string'], time: b[':create/time'] ?? 0, pageUid: page[':block/uid'], pageTitle: page[':node/title'] });
+    }
+  }
+  return collect(rows);
 }
 
 

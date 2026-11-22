@@ -134,13 +134,13 @@ export async function signIn(email, password) {
     .catch(() => { throw new Error('sign-in failed: check the ROAM_EMAIL and ROAM_PASSWORD secrets'); });
   log('signed in');
 }
-export async function openGraph(graph) {
+export async function openGraph(graph, timeout = 180000) {
   if (!roam.page.url().includes(`#/app/${graph}`)) await roam.page.goto(`${APP_URL}/${graph}`);
   try {
     await waitFor(`graph ${graph} to load`, () => evalIn(() => {
       if (/error loading your graph/i.test(document.body.innerText)) throw new Error('graph error');
       return !!(window.roamAlphaAPI?.data?.q && document.querySelector('.roam-main .roam-article, .roam-main .roam-log-container, .rm-title-display'));
-    }), 180000);
+    }), timeout);
   } catch (e) {
     // say what kind of screen Roam is on, without quoting it: the log is public
     const where = await evalIn(() => {

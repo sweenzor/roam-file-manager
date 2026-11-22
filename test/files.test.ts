@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning } from '../src/files.ts';
+import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning, countText } from '../src/files.ts';
 
 const U = (id: string, g = 'g') => `https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${g}%2F${id}?alt=media&token=t-${id}`;
 
@@ -78,4 +78,13 @@ test('the delete warning counts the files still in blocks and the blocks they br
   assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'video', ['b1', 'b2'])]), 'These files are still referenced in 2 blocks, which will be left with broken images and links.');
   assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', []), row('c', 'image', [])]), '1 of these files is still referenced in 1 block, which will be left with a broken image.');
   assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', ['b2']), row('c', 'image', [])]), '2 of these files are still referenced in 2 blocks, which will be left with broken images.');
+});
+
+test('the count in the toolbar', () => {
+  assert.equal(countText(529, 529), '529 Files');
+  assert.equal(countText(1, 1), '1 File');
+  assert.equal(countText(0, 0), '0 Files');
+  assert.equal(countText(12, 529), '12 / 529 Files');
+  assert.equal(countText(0, 1), '0 / 1 File');
+  assert.equal(countText(1200, 12345), '1,200 / 12,345 Files');
 });

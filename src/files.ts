@@ -162,3 +162,8 @@ export function formatSize(bytes: number | null): string {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
+
+/** The count in the list's toolbar: every file ("529 Files"), or how many of them a search or filter
+ *  leaves ("12 / 529 Files"). */
+export const countText = (shown: number, all: number) =>
+  `${shown === all ? '' : `${shown.toLocaleString('en-US')} / `}${all.toLocaleString('en-US')} ${all === 1 ? 'File' : 'Files'}`;

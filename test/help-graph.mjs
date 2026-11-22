@@ -74,6 +74,18 @@ const info = () => page.evaluate(() => {
 });
 let i = await info();
 check('lists the graph\'s files', i.total > 100, `${i.total} files`);
+const count = () => page.evaluate(() => { const c = document.querySelector('.rfm-view .rm-pages-toolbar .toolbar-action-button-group .rfm-count'); return c ? c.textContent : null; });
+const ALL = i.total;
+check('the toolbar counts every file', (await count()) === `${ALL} Files`, await count());
+// reading the graph: the same files as one query for everything, in pieces that each hold Roam up only briefly
+const read = await page.evaluate(async () => {
+  const d = window.roamAlphaAPI.data;
+  const all = d.q('[:find ?uid :where [?b :block/string ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/uid ?uid] [?b :block/page ?p] [?p :block/uid] [?p :node/title]]').length;
+  const keys = new Set();
+  for (const [s] of d.q('[:find ?s :where [?b :block/string ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/page ?p] [?p :node/title]]')) for (const m of s.matchAll(/\/o\/([^?#\s)}\]"'<>`]+)/g)) keys.add(m[1]);
+  return { blocks: all, files: keys.size };
+});
+check('every file a query for all of it finds is listed', read.files === i.total, `${read.files} in ${read.blocks} blocks, ${i.total} listed`);
 check('draws only the rows in view', i.dom < 60, `${i.dom} rows in the DOM`);
 check('sorted by date added, newest first', await page.evaluate(() => document.querySelector('[data-col="added"] .sort-button.desc').classList.contains('focused')));
 await page.waitForTimeout(1500);
@@ -100,6 +112,7 @@ await page.fill('.rfm-view .search-input', 'pdf');
 await page.waitForTimeout(400);
 i = await info();
 check('search narrows the list', i.total > 0 && i.total < 100, `${i.total} match "pdf"`);
+check('while a search narrows it the count reads shown / all', (await count()) === `${i.total} / ${ALL} Files`, await count());
 await page.fill('.rfm-view .search-input', '');
 
 // filter: nothing unused in a graph just scanned; trash stays off
@@ -282,8 +295,17 @@ await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list', await page.evaluate(() => !document.querySelector('.rfm-view')));
 // from Daily Notes, back to Daily Notes: no route change, and the list still closes
+// (and a list opened a second time has its rows from the start: still only those in view are drawn)
+await page.evaluate(() => {
+  window.__most = 0;
+  window.__mo = new MutationObserver(() => { window.__most = Math.max(window.__most, document.querySelectorAll('.rfm-view .rfm-scroller .rm-pages-row').length); });
+  window.__mo.observe(document.body, { childList: true, subtree: true });
+});
 await page.click('.rm-left-sidebar__files');
-await page.waitForSelector('.rfm-view');
+await page.waitForSelector('.rfm-view .rfm-scroller .rm-pages-row');
+await page.waitForTimeout(800);
+const most = await page.evaluate(() => { window.__mo.disconnect(); return window.__most; });
+check('opened again, the list draws only the rows in view', most > 0 && most < 60, `${most} rows at most`);
 await page.click('.rm-left-sidebar__daily-notes');
 await page.waitForTimeout(1500);
 check('Daily Notes closes the list when Roam was already on Daily Notes', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('.roam-log-container')));
@@ -300,6 +322,7 @@ check('All Pages closes the list', await page.evaluate(() => !document.querySele
 // A sort that takes a while (tens of thousands of files; here: made slow) puts the same box up while it runs.
 await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
+await page.waitForTimeout(800); // the list is drawn again once the graph has been read: after that, only the clicks below sort it
 await page.evaluate(() => {
   const sort = Array.prototype.sort;
   window.__realSort = sort;
@@ -406,6 +429,7 @@ check('unload removes the row, the view and the styles', await page.evaluate(() 
   await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
   await page.waitForTimeout(2500);
   check('after a restart almost nothing is fetched again', fetches.length - before <= 12 && !(await page.evaluate(() => !!document.querySelector('.rfm-loader'))), `${fetches.length - before} requests`);
+
 }
 
 await browser.close();
