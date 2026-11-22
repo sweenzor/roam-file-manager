@@ -3,12 +3,14 @@
 // styles it. Rows are virtual: only the rows in view (plus a margin) are in the DOM, so a graph
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
-import { compare, formatSize, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
+import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
 
 export const ROW_H = 39;
 const OVERSCAN = 8;
 /** Roam stores no thumbnails, so a picture's preview is the picture itself: only small ones are shown. */
 const THUMB_MAX = 1.5 * 1024 * 1024;
+/** The delete confirmation shows few files at a time and loads them as they scroll into view, so larger pictures are fine there. */
+const DIALOG_THUMB_MAX = 10 * 1024 * 1024;
 
 type Col = { key: SortKey; label: string; cls: string; sortable: boolean; hideable: boolean };
 const COLS: Col[] = [
@@ -38,6 +40,12 @@ export const STYLES = `
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
+.rfm-delete-content{display:flex;flex-direction:column;max-height:min(440px,60vh) !important}
+.rfm-delete-content .delete-all-dialog-list{flex:1 1 auto;min-height:0;overflow-y:auto}
+.rfm-delete-warning{flex:0 0 auto;margin-bottom:12px}
+.rfm-delete-item{display:grid;grid-template-columns:48px minmax(0,1fr);column-gap:10px;align-items:center}
+.rfm-delete-item .rfm-delete-thumb{grid-row:1 / span 2;width:48px;height:48px;border-radius:3px;object-fit:cover;display:flex;align-items:center;justify-content:center;color:#8a9ba8}
+.rfm-delete-warning>.bp3-icon{position:absolute;left:10px;top:10px}
 .rfm-preview{padding:6px;line-height:0}
 .rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
 .rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
@@ -167,14 +175,15 @@ export class FilesView {
   }
 
   private rowEl(r: Row): HTMLDivElement {
-    const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
+    // a file stored under another graph can't be deleted from here, so it can't be ticked
+    const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const thumb = r.kind === 'image' && r.size != null && r.size <= THUMB_MAX && !isEncrypted(r.key)
       ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     if (r.kind === 'image' && !isEncrypted(r.key)) this.previewOn(thumb, r);
     const n = r.uses.length;
     return h('div', { class: 'rm-pages-row' },
-      h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: 'bp3-control bp3-checkbox', style: { marginBottom: '0' } }, cb, h('span', { class: 'bp3-control-indicator' }))),
+      h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: `bp3-control bp3-checkbox${r.own ? '' : ' bp3-disabled'}`, style: { marginBottom: '0' } }, cb, h('span', { class: 'bp3-control-indicator' }))),
       h('div', { class: 'rm-pages-title-col bp3-text-overflow-ellipsis' }, thumb,
         h('a', { class: 'rm-pages-title-text', onClick: () => this.actions.openFile(r) }, h('strong', {}, r.name)),
         // where All Pages shows the start of a page in grey, the page (or pages) the file is on
@@ -210,9 +219,9 @@ export class FilesView {
       cell.querySelector('.sort-button.desc')?.classList.toggle('focused', on && this.state.desc);
     }
     const sel = this.selectedRows();
-    this.headAll.checked = this.shown.length > 0 && sel.length === this.shown.length;
-    // like All Pages' trash, but only files with no mentions can be deleted
-    const ok = sel.length > 0 && sel.every((r) => r.unused);
+    this.headAll.checked = sel.length > 0 && sel.length === this.shown.filter((r) => r.own).length;
+    // like All Pages' trash: on when something is ticked
+    const ok = sel.length > 0;
     this.trash.disabled = !ok;
     this.trash.classList.toggle('button-disabled-strong', !ok);
   }
@@ -221,7 +230,7 @@ export class FilesView {
 
   private selectAll(on: boolean) {
     this.selected.clear();
-    if (on) for (const r of this.shown) this.selected.add(r.key);
+    if (on) for (const r of this.shown) if (r.own) this.selected.add(r.key);
     this.updateHeader(); this.redraw();
   }
 
@@ -296,8 +305,10 @@ export class FilesView {
 
   // ---------- delete: Roam's own confirmation dialog markup ----------
   confirmDelete() {
-    const rows = this.selectedRows().filter((r) => r.unused);
+    const rows = this.selectedRows().filter((r) => r.own);
     if (!rows.length) return;
+    // files still in blocks: a warning above the list, and Enter no longer confirms
+    const warning = inUseWarning(rows);
     const n = rows.length, noun = n === 1 ? 'file' : 'files';
     let overlay: HTMLElement;
     const close = () => { overlay.remove(); document.removeEventListener('keydown', key, true); };
@@ -306,16 +317,23 @@ export class FilesView {
       // nothing stays ticked afterwards, including a file that could not be deleted
       try { await this.actions.deleteFiles(rows); } finally { for (const r of rows) this.selected.delete(r.key); this.refresh(); close(); }
     };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } else if (e.key === 'Enter') { e.preventDefault(); go(); } };
-    const confirm = h('button', { class: 'bp3-button confirm-button bp3-intent-danger', onClick: go }, h('span', {}, `Yes, delete ${noun}`), icon('key-enter'));
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } else if (e.key === 'Enter') { e.preventDefault(); if (!warning) go(); } };
+    const confirm = h('button', { class: 'bp3-button confirm-button bp3-intent-danger', onClick: go }, h('span', {}, `Yes, delete ${noun}`), !warning && icon('key-enter'));
     overlay = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-overlay bp3-overlay-open bp3-overlay-scroll-container' },
       h('div', { class: 'bp3-overlay-backdrop', onClick: close }),
       h('div', { class: 'bp3-dialog-container bp3-overlay-content' },
         h('div', { class: 'bp3-dialog rm-modal-dialog rm-modal-dialog--confirmation-with-content', role: 'dialog' },
           h('div', { class: 'confirmation-content-dialog' },
             h('h3', { class: 'bp3-heading confirmation-content-header' }, `Are you sure you want to permanently delete ${n} ${noun}?`),
-            h('div', { class: 'confirmation-content' }, h('div', { class: 'delete-all-dialog-list' },
-              ...rows.map((r, i) => h('div', { class: `delete-all-dialog-items${i === n - 1 ? ' last-item' : ''}` },
+            h('div', { class: 'confirmation-content rfm-delete-content' },
+              warning && h('div', { class: 'bp3-callout bp3-intent-danger bp3-callout-icon rfm-delete-warning' }, icon('warning-sign'),
+                h('h4', { class: 'bp3-heading' }, 'Deleting can\'t be undone'), warning),
+              h('div', { class: 'delete-all-dialog-list' },
+              ...rows.map((r, i) => h('div', { class: `delete-all-dialog-items rfm-delete-item${i === n - 1 ? ' last-item' : ''}` },
+                // what is about to go: the picture itself, or the file's icon
+                r.kind === 'image' && !isEncrypted(r.key) && (r.size ?? Infinity) <= DIALOG_THUMB_MAX
+                  ? h('img', { class: 'rfm-delete-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
+                  : h('span', { class: 'rfm-delete-thumb rfm-thumb-icon' }, icon(KIND_ICON[r.kind])),
                 h('div', { class: 'bp3-text-overflow-ellipsis' }, r.name),
                 // Roam's own dialog says "1 Mentions, 0 Words" under each page
                 h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [`${r.uses.length} Mentions`, formatSize(r.size)].filter(Boolean).join(', ')))))),

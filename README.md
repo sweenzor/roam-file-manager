@@ -12,19 +12,21 @@ All Pages.
 - Click a file's name to open it. Hover over its picture to see it larger.
 - **Mentions** counts the blocks a file is in, and the page it's on is shown next to its name. Click the
   count to open those blocks in the right sidebar, the way All Pages opens a page's mentions.
-- **Delete** files that have no mentions, to free up their storage.
+- **Delete** files to free up their storage, whether or not a block still mentions them.
 
 ## Deleting files
 
-When you delete a block that holds an upload, Roam keeps the file in its storage. File Manager is how
-you find those files and remove them.
+Tick one or more files and press the trash. Roam asks you to confirm, showing each file with its
+picture, its mentions and its size.
 
-1. A file that no block mentions shows **0** under Mentions. Sort by Mentions, or turn on **Unused** in
-   the filter, to bring these files together.
-2. Tick the files and press the trash. The trash only works while every ticked file has 0 mentions, so a
-   file that is still in one of your blocks can't be deleted by mistake.
-3. Roam asks you to confirm, listing each file. Deleting is permanent: the file is removed from Roam's
-   storage and can't be brought back.
+**Deleting is permanent.** The file is removed from Roam's storage and can't be brought back.
+
+- **A file with 0 mentions** is in none of your blocks, so nothing in your graph changes. When you
+  delete a block that holds an upload, Roam keeps the file in its storage; these are the files that
+  leaves behind. Sort by Mentions, or turn on **Unused** in the filter, to bring them together.
+- **A file that blocks still mention** can be deleted too. The confirmation warns you first, because
+  those blocks are left as they are and will show a broken image or a dead link. For these files you
+  have to click the red button: Enter doesn't confirm.
 
 Two things to know:
 

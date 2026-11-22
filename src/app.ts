@@ -44,6 +44,11 @@ export class App {
     const files = await scanGraph();
     const seen = await getSeen(graph).catch(() => [] as Seen[]);
     const seenBy = new Map(seen.map((s) => [s.key, s]));
+    const all0 = [...files.keys(), ...seen.map((s) => s.key)];
+    const missing = all0.filter((k) => !this.meta.has(k));
+    if (missing.length) for (const [k, v] of await getMeta(missing).catch(() => new Map<string, Meta>())) this.meta.set(k, v);
+    // a file deleted from here is gone, even while blocks still hold its dead link
+    for (const k of [...files.keys()]) if (this.meta.get(k)?.gone) files.delete(k);
     const updates: Seen[] = [];
     for (const f of files.values()) {
       if (!f.key.startsWith(own)) continue;
@@ -56,14 +61,12 @@ export class App {
       return { key: s.key, url: s.url, name: s.name, ext, kind: kindOf(ext), added: s.added, uses: [] };
     });
     const all = [...files.values(), ...unused];
-    const missing = all.map((f) => f.key).filter((k) => !this.meta.has(k));
-    if (missing.length) for (const [k, v] of await getMeta(missing).catch(() => new Map<string, Meta>())) this.meta.set(k, v);
     const lastUsed = new Map(seen.map((s) => [s.key, s.lastUsed]));
-    this.rows = all.map((f) => this.toRow(f, !files.has(f.key), lastUsed.get(f.key) ?? 0));
+    this.rows = all.map((f) => this.toRow(f, !files.has(f.key), f.key.startsWith(own), lastUsed.get(f.key) ?? 0));
   }
 
-  private toRow(f: FileEntry, unused: boolean, lastUsed: number): Row {
-    const r: Row = { ...f, size: null, unused, lastUsed };
+  private toRow(f: FileEntry, unused: boolean, own: boolean, lastUsed: number): Row {
+    const r: Row = { ...f, size: null, unused, own, lastUsed };
     this.applyMeta(r);
     return r;
   }
@@ -149,11 +152,12 @@ export class App {
   private async deleteFiles(rows: Row[]) {
     const own = ownPrefix(), graph = graphName();
     // look at the graph again first, this time at every text in it (blocks, page titles, anything
-    // else that holds text): a file whose link is anywhere in the graph is never deleted
+    // else that holds text): a file the confirmation listed with 0 mentions is not deleted if its
+    // link is anywhere in the graph. A file listed with mentions was confirmed with the warning.
     const current = await keysAnywhere();
     const gone: string[] = [];
     for (const r of rows) {
-      if (!r.unused || !r.key.startsWith(own) || current.has(r.key)) continue;
+      if (!r.key.startsWith(own) || (r.uses.length === 0 && current.has(r.key))) continue;
       try {
         await api().file.delete({ url: r.url });
         gone.push(r.key);
@@ -165,10 +169,14 @@ export class App {
     }
     await forget(graph, gone).catch(() => {});
     for (const k of gone) this.meta.delete(k);
+    // the blocks that held a deleted file keep its dead link: remember that the file is gone
+    const dead: [string, Meta][] = gone.filter((k) => current.has(k)).map((k) => [k, { size: 0, created: 0, fileName: null, type: null, gone: true }]);
+    for (const [k, m] of dead) this.meta.set(k, m);
+    await putMeta(dead).catch(() => {});
     await this.scan().catch(() => {});
     this.view?.setRows(this.rows);
-    // what was asked for, wasn't deleted, and still shows as unused
-    const left = rows.filter((r) => !gone.includes(r.key) && this.rows.some((x) => x.key === r.key && x.unused));
+    // what was asked for, wasn't deleted, and is still listed
+    const left = rows.filter((r) => !gone.includes(r.key) && this.rows.some((x) => x.key === r.key));
     if (left.length) errorToast(`Couldn't delete ${left.map((r) => r.name).join(', ')}`);
   }
 }

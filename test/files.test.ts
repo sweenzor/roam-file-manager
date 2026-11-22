@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row } from '../src/files.ts';
+import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning } from '../src/files.ts';
 
 const U = (id: string, g = 'g') => `https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${g}%2F${id}?alt=media&token=t-${id}`;
 
@@ -48,7 +48,7 @@ test('kinds', () => {
 });
 
 test('sorts by date, newest first, and by size with unknown sizes last', () => {
-  const row = (key: string, added: number, size: number | null): Row => ({ key, url: '', name: key, ext: 'png', kind: 'image', added, uses: [], size, unused: false, lastUsed: 0 });
+  const row = (key: string, added: number, size: number | null): Row => ({ key, url: '', name: key, ext: 'png', kind: 'image', added, uses: [], size, unused: false, own: true, lastUsed: 0 });
   const rows = [row('a', 1, 10), row('b', 3, null), row('c', 2, 30)];
   assert.deepEqual([...rows].sort(compare('added', true)).map((r) => r.key), ['b', 'c', 'a']);
   assert.deepEqual([...rows].sort(compare('size', true)).map((r) => r.key), ['c', 'a', 'b']);
@@ -67,4 +67,15 @@ test('what else a block says, without its files', () => {
   assert.equal(restOf(`Logo: ![](${U('a.png')}) for the site`), 'Logo: for the site');
   assert.equal(restOf(`[Report Q3.xlsx](${U('e.xlsx')})`), 'Report Q3.xlsx');
   assert.equal(restOf('x'.repeat(200)).length, 80);
+});
+
+test('the delete warning counts the files still in blocks and the blocks they break', () => {
+  const use = (uid: string) => ({ uid, pageUid: 'p', pageTitle: 'P', time: 0, text: '' });
+  const row = (key: string, kind: Row['kind'], uids: string[]): Row => ({ key, url: '', name: key, ext: 'x', kind, added: 0, uses: uids.map(use), size: 1, unused: !uids.length, own: true, lastUsed: 0 });
+  assert.equal(inUseWarning([row('a', 'image', [])]), '');
+  assert.equal(inUseWarning([row('a', 'image', ['b1'])]), 'This file is still in 1 block, which will be left with broken images.');
+  assert.equal(inUseWarning([row('a', 'pdf', ['b1', 'b2'])]), 'This file is still in 2 blocks, which will be left with broken links.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'video', ['b1', 'b2'])]), 'These files are still in 2 blocks, which will be left with broken images and links.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', []), row('c', 'image', [])]), '1 of these files is still in 1 block, which will be left with broken images.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', ['b2']), row('c', 'image', [])]), '2 of these files are still in 2 blocks, which will be left with broken images.');
 });

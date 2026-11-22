@@ -33,5 +33,6 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 ## Rules
 
 - Follow Roam's existing UI patterns and class names. No invented text: no empty states, hints or tooltips.
-- Never delete a file without the user confirming, and never one that a block uses.
+- Never delete a file without the user confirming. A file that blocks still mention can be deleted (Matthew, 2026-11-22), but only behind the warning in the confirmation (broken images, can't be undone), and Enter must not confirm it.
+- The help-graph test must never confirm a delete: those are Roam's own files.
 - Words come from Roam's All Pages: a file's uses are its Mentions. The count opens the blocks in the right sidebar and the list stays open, as All Pages does.

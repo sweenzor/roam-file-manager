@@ -110,7 +110,28 @@ export function collect(blocks: Iterable<BlockRow>): Map<string, FileEntry> {
 
 export type SortKey = 'name' | 'kind' | 'size' | 'mentions' | 'added';
 
-export interface Row extends FileEntry { size: number | null; unused: boolean; lastUsed: number }
+/** unused: no block holds it now. own: it is stored under this graph, so it can be deleted from here. */
+export interface Row extends FileEntry { size: number | null; unused: boolean; own: boolean; lastUsed: number }
+
+/** What the delete confirmation warns about: the ticked files that are still in blocks, and what kind of hole they leave. */
+export function inUse(rows: Row[]): { files: number; blocks: number; images: boolean; others: boolean } {
+  const used = rows.filter((r) => r.uses.length > 0);
+  return {
+    files: used.length,
+    blocks: new Set(used.flatMap((r) => r.uses.map((u) => u.uid))).size,
+    images: used.some((r) => r.kind === 'image'),
+    others: used.some((r) => r.kind !== 'image'),
+  };
+}
+
+/** The warning's sentence, e.g. "2 of these files are still in 5 blocks, which will be left with broken images." */
+export function inUseWarning(rows: Row[]): string {
+  const u = inUse(rows);
+  if (!u.files) return '';
+  const who = rows.length === 1 ? 'This file is' : u.files === rows.length ? 'These files are' : `${u.files} of these files ${u.files === 1 ? 'is' : 'are'}`;
+  const what = u.images && u.others ? 'images and links' : u.images ? 'images' : 'links';
+  return `${who} still in ${u.blocks} ${u.blocks === 1 ? 'block' : 'blocks'}, which will be left with broken ${what}.`;
+}
 
 export function compare(key: SortKey, desc: boolean) {
   const dir = desc ? -1 : 1;

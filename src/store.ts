@@ -1,10 +1,12 @@
 // What the extension keeps on this device, in IndexedDB (database "roam-file-manager"):
 //  - meta: each file's Firebase Storage metadata (size, upload time, original name). It never
-//    changes for a stored file, so it is fetched once.
+//    changes for a stored file, so it is fetched once. A file deleted from here while blocks still
+//    held its link stays as a `gone` entry, so the dead links don't bring it back into the list.
 //  - seen: every file of this graph the extension has found in a block, with when it last saw it in
 //    use. Roam can't list a graph's stored files, so this is how a file that no block uses any more
 //    is found: it was seen before and isn't in any block now.
-export interface Meta { size: number; created: number; fileName: string | null; type: string | null }
+/** gone: the file was deleted from here while blocks still held its link, so it is no longer listed. */
+export interface Meta { size: number; created: number; fileName: string | null; type: string | null; gone?: true }
 export interface Seen { id: string; graph: string; key: string; url: string; name: string; added: number; lastUsed: number; lastPage: string }
 
 const DB = 'roam-file-manager';

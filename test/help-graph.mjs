@@ -80,11 +80,22 @@ check('Unused filter shows nothing when every file is in use', i.total === 0);
 await page.screenshot({ path: path.join(OUT, '3-filter.png') });
 await page.evaluate(() => [...document.querySelectorAll('.bp3-popover label')].find((e) => e.textContent.trim() === 'Unused').querySelector('input').click());
 await page.mouse.click(700, 700);
-await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
-check('trash is off for a file that is in use', await page.evaluate(() => document.querySelector('.rfm-view .bp3-icon-trash').disabled));
+await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:not([disabled])').click());
+check('a file stored under another graph cannot be ticked', await page.evaluate(() => document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input[disabled]').length > 0));
+check('trash is on for a ticked file', await page.evaluate(() => !document.querySelector('.rfm-view .bp3-icon-trash').disabled));
+// the confirmation for a file that is in use. Nothing is ever confirmed here: this is Roam's own help graph.
+await page.click('.rfm-view .bp3-icon-trash');
+await page.waitForSelector('.confirmation-content-dialog');
+const warn = await page.evaluate(() => document.querySelector('.rfm-delete-warning')?.innerText.replace(/\s+/g, ' ') ?? '');
+check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still in \d+ blocks?, which will be left with broken (images|links)\./.test(warn), warn);
+check('the confirmation shows the file\'s picture or icon, and no Enter shortcut', await page.evaluate(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 1 && !document.querySelector('.confirmation-content-dialog .confirm-button .bp3-icon-key-enter')));
+await page.screenshot({ path: path.join(OUT, '3b-delete-in-use.png') });
+await page.click('.confirmation-content-dialog .cancel-button');
+await page.waitForTimeout(300);
+check('Cancel closes the confirmation', await page.evaluate(() => !document.querySelector('.confirmation-content-dialog')));
 
 // a file in several blocks: one count, the pages in grey after the name, and a click opens the blocks in the right sidebar
-await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input').click());
+await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:not([disabled])').click());
 await page.click('.rfm-view [data-col="mentions"] .sort-button.desc');
 await page.waitForTimeout(500);
 const multi = await page.evaluate(() => { const r = document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)'); return { mentions: +r.querySelector('.rfm-col-mentions').textContent, pages: r.querySelector('.title-children-text')?.textContent ?? '' }; });
