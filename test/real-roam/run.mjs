@@ -19,7 +19,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   roam, log, sleep, evalIn, serve, stopServing, launchRoam, killRoam, waitFor, shot, signIn, openGraph,
-  dismissDialogs, loadDevExtension, extensionLoaded, openSettings, clickLeaf,
+  dismissDialogs, loadDevExtension, extensionLoaded,
 } from './roam.mjs';
 
 const EMAIL = process.env.ROAM_EMAIL, PASSWORD = process.env.ROAM_PASSWORD;
@@ -314,37 +314,6 @@ try {
     () => check('after a restart, a file whose block went away is still found as unused', false));
   await setSwitch('Unused', false);
   await closePopover();
-  // TEMPORARY probe (removed in the next commit): how Roam's own extension browser lays out and sorts its cards
-  try {
-    await openSettings();
-    await clickLeaf('Roam Depot');
-    await sleep(3000);
-    await evalIn(() => [...document.querySelectorAll('.bp3-dialog button, .bp3-dialog .bp3-button')].find((e) => /Browse/i.test(e.innerText))?.click());
-    await sleep(6000);
-    const probe = await evalIn(() => {
-      const d = [...document.querySelectorAll('.bp3-dialog, .bp3-overlay-content')].pop();
-      const ctl = [...d.querySelectorAll('button, .bp3-button, select, input, .bp3-html-select, .bp3-tab, [role=tab], .bp3-popover-target')].slice(0, 60)
-        .map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 60)} "${(e.innerText || e.placeholder || e.value || '').replace(/\s+/g, ' ').slice(0, 40)}"`);
-      const sel = [...d.querySelectorAll('select')].map((e) => [...e.options].map((o) => o.text).join(' | '));
-      return { text: d.innerText.replace(/\s+/g, ' ').slice(0, 1500), ctl, sel, cls: String(d.className) };
-    });
-    log('DEPOT-PROBE cls', probe.cls);
-    log('DEPOT-PROBE text', probe.text);
-    for (const c of probe.ctl) log('DEPOT-PROBE ctl', c);
-    for (const c of probe.sel) log('DEPOT-PROBE select', c);
-    const head = await evalIn(() => {
-      const b = document.querySelector('.rm-extensions-marketplace-dialog .bp3-icon-sort');
-      const r = (e) => { const q = e.getBoundingClientRect(); return [q.x, q.y, q.width, q.height].map(Math.round).join(','); };
-      let top = b; for (let i = 0; i < 4 && top.parentElement; i++) top = top.parentElement;
-      return { btn: r(b), input: r(document.querySelector('.rm-extensions-marketplace-dialog input')), dialog: r(document.querySelector('.rm-extensions-marketplace-dialog')), html: top.outerHTML.replace(/\s+/g, ' ').slice(0, 1800) };
-    });
-    log('DEPOT-PROBE rects', JSON.stringify({ btn: head.btn, input: head.input, dialog: head.dialog }));
-    log('DEPOT-PROBE header-html', head.html);
-    await roam.page.click('.rm-extensions-marketplace-dialog .bp3-icon-sort');
-    await sleep(1000);
-    log('DEPOT-PROBE menu-html', await evalIn(() => [...document.querySelectorAll('.bp3-portal .bp3-popover')].map((e) => e.outerHTML.replace(/\s+/g, ' ')).join(' ### ').slice(0, 3500)));
-    await shot('depot-sort-menu');
-  } catch (e) { log('DEPOT-PROBE failed', e.message.split('\n')[0]); }
 } catch (e) {
   log('ERROR', e.message);
   await shot('error');

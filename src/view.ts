@@ -25,7 +25,14 @@ const COLS: Col[] = [
   { key: 'added', label: 'ADDED', cls: 'rfm-col-added', sortable: true, hideable: true },
 ];
 const COL_NAMES: Record<string, string> = { kind: 'Type', size: 'Size', mentions: 'Mentions', added: 'Added' };
-const SORT_NAMES: Record<SortKey, string> = { name: 'Name', ...COL_NAMES } as Record<SortKey, string>;
+/** Thumbnail view's sort menu, worded as Roam words its extension browser's ("Downloads (high to low)", "Created (newest first)", "Alphabetical (A to Z)"). */
+const SORT_MENU: [SortKey, boolean, string][][] = [
+  [['added', true, 'Added (newest first)'], ['added', false, 'Added (oldest first)']],
+  [['size', true, 'Size (high to low)'], ['size', false, 'Size (low to high)']],
+  [['mentions', true, 'Mentions (high to low)'], ['mentions', false, 'Mentions (low to high)']],
+  [['kind', false, 'Type (A to Z)'], ['kind', true, 'Type (Z to A)']],
+  [['name', false, 'Alphabetical (A to Z)'], ['name', true, 'Alphabetical (Z to A)']],
+];
 
 export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs'], ['audio', 'Audio'], ['video', 'Video'], ['other', 'Other files']];
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
@@ -72,7 +79,6 @@ export const STYLES = `
 .rfm-view.rfm-grid .rfm-grid-only{display:inline-flex}
 .rfm-view .toolbar-action-button-group{display:flex;align-items:center}
 .rfm-view .rfm-grid-all{margin:0 6px 0 12px}
-.rfm-view .rfm-sort-button{margin-left:8px}
 .rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
@@ -203,8 +209,6 @@ export class FilesView {
   private filterIcon: HTMLSpanElement;
   private gridIcon: HTMLSpanElement;
   private gridAll: HTMLInputElement;
-  private sortLabel: HTMLSpanElement;
-  private sortDir: HTMLSpanElement;
   /** How the rows are laid out now: files per line, the height of a line, the width of a tile. */
   private per = 1; private lineH = ROW_H; private tileW = 0;
   private headAll: HTMLInputElement;
@@ -222,17 +226,16 @@ export class FilesView {
     const gridBtn = h('span', { class: 'bp3-button bp3-minimal filter-button rfm-grid-button', tabindex: 0, onClick: () => this.setGrid(!this.state.grid) }, this.gridIcon);
     const eyeBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleColumns(e.currentTarget as HTMLElement) }, icon('eye-open', 'filter-icon'));
     // thumbnails have no columns to carry the header, so its two jobs move into the toolbar: a select-all
-    // box by the trash, and one sort control (what the files are sorted by, and an arrow for the direction)
+    // box by the trash, and one sort button beside the search
     this.gridAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.gridAll.checked) });
     const gridAllBox = h('label', { class: 'bp3-control bp3-checkbox rfm-grid-only rfm-grid-all' }, this.gridAll, h('span', { class: 'bp3-control-indicator' }));
-    this.sortLabel = h('span', { class: 'bp3-button-text' });
-    const sortBtn = h('span', { class: 'bp3-button bp3-minimal rfm-grid-only rfm-sort-button', tabindex: 0, onClick: (e: Event) => this.toggleSort(e.currentTarget as HTMLElement) }, this.sortLabel, icon('caret-down'));
-    this.sortDir = icon('arrow-down');
-    const dirBtn = h('span', { class: 'bp3-button bp3-minimal rfm-grid-only rfm-sort-dir', tabindex: 0, onClick: () => this.sortBy(this.state.sort, !this.state.desc) }, this.sortDir);
+
+    // the sort button of Roam's own card grid (the extension browser in Settings > Roam Depot): same classes, same kind of menu
+    const sortBtn = h('button', { class: 'bp3-button bp3-icon-standard bp3-minimal bp3-icon-sort rfm-grid-only rfm-sort-button', onClick: (e: Event) => this.toggleSort(e.currentTarget as HTMLElement) });
     const toolbar = h('div', { class: 'flex-h-box rm-pages-toolbar' },
-      h('div', { class: 'toolbar-action-button-group' }, gridAllBox, this.trash, sortBtn, dirBtn),
+      h('div', { class: 'toolbar-action-button-group' }, gridAllBox, this.trash),
       h('div', { class: 'toolbar-search-group' },
-        h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), filterBtn, gridBtn, eyeBtn));
+        h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), sortBtn, filterBtn, gridBtn, eyeBtn));
     this.headAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.headAll.checked) });
     this.header = h('div', { class: 'rm-pages-row rm-pages-row-header' },
       h('div', { class: 'rm-pages-checkbox-col' }, h('label', { class: 'bp3-control bp3-checkbox checkbox-header' }, this.headAll, h('span', { class: 'bp3-control-indicator' }))),
@@ -394,8 +397,6 @@ export class FilesView {
       cell.querySelector('.sort-button:not(.desc)')?.classList.toggle('focused', on && !this.state.desc);
       cell.querySelector('.sort-button.desc')?.classList.toggle('focused', on && this.state.desc);
     }
-    this.sortLabel.textContent = SORT_NAMES[this.state.sort];
-    this.sortDir.className = `bp3-icon bp3-icon-arrow-${this.state.desc ? 'down' : 'up'}`;
     const sel = this.selectedRows();
     this.headAll.checked = this.gridAll.checked = sel.length > 0 && sel.length === this.shown.filter((r) => r.own).length;
     // like All Pages' trash: on when something is ticked
@@ -486,14 +487,15 @@ export class FilesView {
     const input = h('input', { type: 'checkbox', checked: on, onChange: () => change(input.checked) });
     return h('label', { class: 'bp3-control bp3-switch bp3-align-right' }, input, h('span', { class: 'bp3-control-indicator' }), h('span', { style: { fontWeight: '400' } }, label));
   }
-  /** Thumbnail view's sort menu: the list's column names; picking the one in use flips the direction. */
+  /** Thumbnail view's sort menu, with the markup of the one in Roam's extension browser. */
   private toggleSort(anchor: HTMLElement) {
     if (this.popover) return this.closePopover();
+    const item = ([k, desc, label]: [SortKey, boolean, string]) => h('li', {},
+      h('a', { class: `bp3-menu-item${k === this.state.sort && desc === this.state.desc ? ' bp3-active bp3-intent-primary' : ''} bp3-popover-dismiss`, tabindex: 0, 'data-sort': `${k}-${desc ? 'desc' : 'asc'}`,
+        onClick: () => { this.closePopover(); this.sortBy(k, desc); } },
+        h('div', { class: 'bp3-fill bp3-text-overflow-ellipsis' }, label)));
     this.openPopover(anchor, h('ul', { class: 'bp3-menu rfm-sort-menu' },
-      ...(Object.keys(SORT_NAMES) as SortKey[]).map((k) => h('li', {},
-        h('a', { class: `bp3-menu-item${k === this.state.sort ? ' bp3-active' : ''}`, tabindex: 0, 'data-sort': k,
-          onClick: () => { this.closePopover(); this.sortBy(k, k === this.state.sort ? !this.state.desc : k !== 'name'); } },
-          h('div', { class: 'bp3-text-overflow-ellipsis bp3-fill' }, SORT_NAMES[k]))))), 150, true);
+      ...SORT_MENU.flatMap((pair, i) => [i > 0 && h('li', { class: 'bp3-menu-divider' }), ...pair.map(item)])), 200);
   }
   private toggleColumns(anchor: HTMLElement) {
     if (this.popover) return this.closePopover();
