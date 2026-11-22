@@ -4,7 +4,7 @@
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
 import { getStill, putStill } from './store.ts';
-import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
+import { countText, compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
 
 export const ROW_H = 39;
 /** Below this width (the right sidebar open on a small window) the columns close up, so that names keep their room. */
@@ -49,6 +49,7 @@ export const STYLES = `
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-added{flex-basis:146px;white-space:nowrap}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
+.rfm-view .rfm-count{align-self:center;margin-left:8px;white-space:nowrap}
 .rfm-view{position:relative}
 .rfm-view.rfm-loading>.rm-pages-toolbar,.rfm-view.rfm-loading>.table{opacity:.35;pointer-events:none;user-select:none}
 .rfm-loader{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;justify-content:center;cursor:progress;z-index:5}
@@ -193,6 +194,9 @@ export class FilesView {
   private drawn = new Map<number, HTMLDivElement>();
   private ro: ResizeObserver;
   private popover: HTMLElement | null = null;
+  /** How many files the graph has, next to the trash: "529 Files", or "12 / 529 Files" while a search or filter narrows the list. */
+  private count: HTMLElement;
+  private counted = false;
   private parts: HTMLElement[];
   private loader: HTMLDivElement | null = null;
   private loading: number | null = null;
@@ -206,11 +210,12 @@ export class FilesView {
     const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search Files', value: state.query,
       onInput: (e: Event) => { this.state.query = (e.target as HTMLInputElement).value; this.refresh(); } });
     this.trash = h('button', { class: 'bp3-button bp3-minimal bp3-icon-trash button-disabled-strong', tabindex: 0, disabled: true, onClick: () => this.confirmDelete() });
+    this.count = h('span', { class: 'rfm-count bp3-text-muted' });
     this.filterIcon = icon('filter', 'filter-icon');
     const filterBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleFilter(e.currentTarget as HTMLElement) }, this.filterIcon);
     const eyeBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleColumns(e.currentTarget as HTMLElement) }, icon('eye-open', 'filter-icon'));
     const toolbar = h('div', { class: 'flex-h-box rm-pages-toolbar' },
-      h('div', { class: 'toolbar-action-button-group' }, this.trash),
+      h('div', { class: 'toolbar-action-button-group' }, this.trash, this.count),
       h('div', { class: 'toolbar-search-group' },
         h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), filterBtn, eyeBtn));
     this.headAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.headAll.checked) });
@@ -231,6 +236,7 @@ export class FilesView {
 
   setRows(rows: Row[]) {
     this.rows = rows;
+    this.counted = true;
     const keys = new Set(rows.map((r) => r.key));
     for (const k of this.selected) if (!keys.has(k)) this.selected.delete(k);
     this.refresh();
@@ -290,6 +296,8 @@ export class FilesView {
     const next = this.rows.filter((r) => (!kinds.size || kinds.has(r.kind)) && (!unusedOnly || r.unused)
       && (!q || r.name.toLowerCase().includes(q) || r.ext === q || r.uses.some((u) => u.pageTitle.toLowerCase().includes(q))));
     this.filterIcon.classList.toggle('filtered', kinds.size > 0 || unusedOnly);
+    // empty until the graph has been read: "0 Files" would be wrong for that moment
+    this.count.textContent = this.counted ? countText(next.length, this.rows.length) : '';
     const key = this.state.sort, desc = this.state.desc, run = ++this.sortRun;
     const work = next.length > 1 ? next.length * Math.log2(next.length) : 0;
     const slow = this.sortCost[key] * work > SLOW_SORT_MS;

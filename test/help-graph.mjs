@@ -74,6 +74,9 @@ const info = () => page.evaluate(() => {
 });
 let i = await info();
 check('lists the graph\'s files', i.total > 100, `${i.total} files`);
+const count = () => page.evaluate(() => { const c = document.querySelector('.rfm-view .rm-pages-toolbar .toolbar-action-button-group .rfm-count'); return c ? c.textContent : null; });
+const ALL = i.total;
+check('the toolbar counts every file', (await count()) === `${ALL} Files`, await count());
 check('draws only the rows in view', i.dom < 60, `${i.dom} rows in the DOM`);
 check('sorted by date added, newest first', await page.evaluate(() => document.querySelector('[data-col="added"] .sort-button.desc').classList.contains('focused')));
 await page.waitForTimeout(1500);
@@ -100,6 +103,7 @@ await page.fill('.rfm-view .search-input', 'pdf');
 await page.waitForTimeout(400);
 i = await info();
 check('search narrows the list', i.total > 0 && i.total < 100, `${i.total} match "pdf"`);
+check('while a search narrows it the count reads shown / all', (await count()) === `${i.total} / ${ALL} Files`, await count());
 await page.fill('.rfm-view .search-input', '');
 
 // filter: nothing unused in a graph just scanned; trash stays off

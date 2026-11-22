@@ -156,6 +156,8 @@ try {
   await waitFor('the test files in the list, with sizes', async () => { const r = await rows(); return r.length >= 3 && r.filter((x) => x.name?.includes(RUN)).every((x) => x.size); }, 30000);
   let kept = await rowOf(NAMES.kept), dropped = await rowOf(NAMES.dropped), doc = await rowOf(NAMES.doc);
   check('lists uploaded files by the name they were uploaded with', kept && dropped && doc, [kept, dropped, doc].map((r) => r?.name).join(', '));
+  const counted = await evalIn((v) => document.querySelector(`${v} .rfm-count`)?.textContent ?? '', VIEW);
+  check('the toolbar counts the files: shown / all while searching', new RegExp(`^${(await rows()).length} / [\\d,]+ Files$`).test(counted), counted);
   check('shows type and size', kept?.type === 'PNG' && /\d+ B|KB/.test(kept?.size ?? '') && doc?.type === 'TXT' && doc?.size === '1.0 KB', `${kept?.type} ${kept?.size}; ${doc?.type} ${doc?.size}`);
   check('shows the page and one mention', dropped?.page === TEST_PAGE && dropped?.mentions === '1', `${dropped?.page}, ${dropped?.mentions}`);
   check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`) && kept?.page.replace(`${TEST_PAGE} 2`, '').includes(TEST_PAGE), `${kept?.page}, ${kept?.mentions}`);

@@ -39,6 +39,9 @@ a sort takes a while, which only happens with tens of thousands of files.
 | **Mentions** | How many blocks the file is in. Click the count to [see those blocks](#mentions). |
 | **Added** | The day the file was uploaded. |
 
+Above the list, next to the trash, is the number of files in the graph. While a search or a filter narrows
+the list it reads as shown / all, as in **5 / 12 Files**.
+
 The eye above the list hides the columns you don't need.
 
 ![The Show or Hide Columns menu, with a switch for Type, Size, Mentions and Added](https://raw.githubusercontent.com/sweenzor/roam-file-manager/a65bed38617bbd0b175f5a66f53495c658c13fc2/docs/images/columns.png)
