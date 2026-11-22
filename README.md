@@ -21,10 +21,11 @@ Nothing in your graph is changed, and nothing is deleted unless you confirm it.
 2. Click **Files** in the left sidebar, under **All Pages**.
 
 The first time the list opens it fetches each file's size, upload date and name from Roam's file
-storage. You can use the list straight away. On a graph with many files, a bar above the list shows how
-far that has got; sorting by size or name is complete once the bar is gone.
+storage. You can use the list straight away. On a graph with many files, a progress bar at the top of
+the window shows how far that has got, as when Roam uploads a file; sorting by size or name is complete
+once it has turned green.
 
-![The list just after it was opened for the first time, with a progress bar above it and some sizes still to come](https://raw.githubusercontent.com/sweenzor/roam-file-manager/72d067b5f7324e247c62b430a1110176651c6283/docs/images/first-open.png)
+![The list just after it was opened for the first time, with a progress bar at the top of the window and some sizes still to come](https://raw.githubusercontent.com/sweenzor/roam-file-manager/72d067b5f7324e247c62b430a1110176651c6283/docs/images/first-open.png)
 
 After that it's all kept on your device, and the list opens at once.
 

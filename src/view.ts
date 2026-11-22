@@ -9,6 +9,8 @@ import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, ty
 export const ROW_H = 39;
 /** Below this width (the right sidebar open on a small window) the columns close up, so that names keep their room. */
 const NARROW = 1000;
+/** Roam's upload toast stays this long (ms) once it is done. */
+const TOAST_DONE_MS = 2000;
 const OVERSCAN = 8;
 /** Roam stores no thumbnails, so a picture's preview is the picture itself: only small ones are shown. */
 const THUMB_MAX = 1.5 * 1024 * 1024;
@@ -40,8 +42,6 @@ export const STYLES = `
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-added{flex-basis:146px;white-space:nowrap}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
-.rfm-view .table{position:relative}
-.rfm-view .rfm-progress{position:absolute;left:0;right:0;top:-6px;height:4px}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
 .rfm-delete-content{display:flex;flex-direction:column;max-height:min(440px,60vh) !important}
@@ -181,8 +181,9 @@ export class FilesView {
   private drawn = new Map<number, HTMLDivElement>();
   private ro: ResizeObserver;
   private popover: HTMLElement | null = null;
-  private table: HTMLDivElement;
-  private bar: HTMLDivElement | null = null;
+  private toast: HTMLDivElement | null = null;
+  private toastTimer = 0;
+  private toastClosed = false;
 
   constructor(private actions: ViewActions, public state: ViewState = defaultState()) {
     const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search Files', value: state.query,
@@ -202,14 +203,13 @@ export class FilesView {
       ...COLS.map((c) => this.headCell(c)));
     this.spacer = h('div', { style: { position: 'relative', width: '100%' } });
     this.scroller = h('div', { class: 'rfm-scroller', onScroll: () => { this.hidePreview(); this.draw(); } }, this.spacer);
-    this.table = h('div', { class: 'table' }, this.header, this.scroller);
-    this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, this.table);
+    this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, h('div', { class: 'table' }, this.header, this.scroller));
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
     this.applyHidden();
   }
 
-  destroy() { this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.el.remove(); }
+  destroy() { this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.progress(null); this.el.remove(); }
 
   setRows(rows: Row[]) {
     this.rows = rows;
@@ -221,14 +221,46 @@ export class FilesView {
   /** Sizes, names or upload dates arrived for some rows: sort again and redraw, staying in place. */
   updated() { this.refresh(); }
 
-  /** How far a long fetch of sizes and dates has got (0 to 1): a thin bar in the gap above the table. null when there is nothing to wait for. */
+  /**
+   * How far a long fetch of sizes and dates has got (0 to 1), shown the way Roam shows a file being
+   * uploaded: a toast at the top of the window with an icon and a striped bar, which turns green
+   * for a moment at the end. null takes it away at once (the view is closing).
+   */
   progress(done: number | null) {
-    if (done == null || done >= 1) { this.bar?.remove(); this.bar = null; return; }
-    if (!this.bar) {
-      this.bar = h('div', { class: 'bp3-progress-bar bp3-intent-primary bp3-no-stripes rfm-progress' }, h('div', { class: 'bp3-progress-meter' }));
-      this.table.prepend(this.bar);
+    if (done == null) { window.clearTimeout(this.toastTimer); this.toast?.remove(); this.toast = null; this.toastClosed = false; return; }
+    if (!this.toast) {
+      if (done >= 1) { this.toastClosed = false; return; }
+      if (this.toastClosed) return;
+      const box = h('div', { class: 'bp3-toast bp3-overlay-content bp3-toast-enter', tabindex: 0 },
+        icon('folder-close'),
+        h('span', { class: 'bp3-toast-message' }, h('div', { class: 'bp3-progress-bar bp3-intent-primary' }, h('div', { class: 'bp3-progress-meter' }))),
+        h('div', { class: 'bp3-button-group bp3-minimal' },
+          h('button', { class: 'bp3-button', type: 'button', onClick: () => { this.toastClosed = true; this.closeToast(); } }, icon('cross'))));
+      // Roam's own toasts: Blueprint's container at the top of the window, raised above Roam's panels
+      this.toast = h('div', { class: 'bp3-overlay bp3-overlay-open bp3-toast-container bp3-toast-container-top bp3-toast-container-in-portal roam-lift-toast rfm-toast' }, box);
+      document.body.append(this.toast);
+      requestAnimationFrame(() => box.classList.add('bp3-toast-enter-active'));
     }
-    (this.bar.firstElementChild as HTMLElement).style.width = `${Math.round(done * 100)}%`;
+    const bar = this.toast.querySelector('.bp3-progress-bar') as HTMLElement;
+    (bar.firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, done) * 100)}%`;
+    if (done >= 1) {
+      bar.className = 'bp3-progress-bar bp3-intent-success bp3-no-stripes';
+      window.clearTimeout(this.toastTimer);
+      this.toastTimer = window.setTimeout(() => this.closeToast(), TOAST_DONE_MS);
+    }
+  }
+
+  /** The toast leaves as Blueprint's do. */
+  private closeToast() {
+    const el = this.toast;
+    if (!el) return;
+    this.toast = null;
+    window.clearTimeout(this.toastTimer);
+    const box = el.firstElementChild as HTMLElement;
+    box.classList.remove('bp3-toast-enter', 'bp3-toast-enter-active');
+    box.classList.add('bp3-toast-exit');
+    requestAnimationFrame(() => box.classList.add('bp3-toast-exit-active'));
+    window.setTimeout(() => el.remove(), 300);
   }
 
   /** The rows as listed, and the keys of those on screen now. */

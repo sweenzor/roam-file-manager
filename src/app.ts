@@ -12,7 +12,7 @@ const graphName = (): string => api().graph.name;
  *  a file pasted from another graph belongs to that graph. */
 const ownPrefix = () => `imgs/app/${graphName()}/`;
 
-/** A load of sizes and dates that is over this quickly (ms) shows no progress bar. */
+/** A load of sizes and dates that is over this quickly (ms) shows no progress toast. */
 const PROGRESS_AFTER = 1000;
 
 const STATE_KEY = 'roam-file-manager:view';
@@ -119,7 +119,7 @@ export class App {
       }
     }));
     if (ctl.signal.aborted) return;
-    this.view?.progress(null);
+    this.view?.progress(1);
     await flush(true);
     if (gone.length) {
       await forget(graphName(), gone).catch(() => {});
