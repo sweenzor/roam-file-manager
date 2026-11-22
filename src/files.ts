@@ -125,12 +125,14 @@ export function inUse(rows: Row[]): { files: number; blocks: number; images: boo
 }
 
 /** The warning's sentence, e.g. "2 of these files are still in 5 blocks, which will be left with broken images." */
+// one block: "a broken image"
 export function inUseWarning(rows: Row[]): string {
   const u = inUse(rows);
   if (!u.files) return '';
   const who = rows.length === 1 ? 'This file is' : u.files === rows.length ? 'These files are' : `${u.files} of these files ${u.files === 1 ? 'is' : 'are'}`;
-  const what = u.images && u.others ? 'images and links' : u.images ? 'images' : 'links';
-  return `${who} still in ${u.blocks} ${u.blocks === 1 ? 'block' : 'blocks'}, which will be left with broken ${what}.`;
+  const one = u.blocks === 1;
+  const what = u.images && u.others ? 'broken images and links' : `${one ? 'a ' : ''}broken ${u.images ? 'image' : 'link'}${one ? '' : 's'}`;
+  return `${who} still in ${u.blocks} ${one ? 'block' : 'blocks'}, which will be left with ${what}.`;
 }
 
 export function compare(key: SortKey, desc: boolean) {

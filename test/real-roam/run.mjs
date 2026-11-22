@@ -262,7 +262,7 @@ try {
   await tick(NAMES.used);
   await openDialog();
   warn = await warningText();
-  check('warns about the one block', warn.includes('This file is still in 1 block, which will be left with broken images.'), warn);
+  check('warns about the one block', warn.includes('This file is still in 1 block, which will be left with a broken image.'), warn);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
   await waitFor('the deleted file to leave the list', async () => !(await rowOf(NAMES.used)), 30000);
   check('confirming deletes a file that was still in a block', [403, 404].includes(await stored(urls.used)), `storage answers ${await stored(urls.used)}`);
