@@ -445,8 +445,9 @@ export class FilesView {
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const open = !isEncrypted(r.key) && r.size != null && r.size <= GRID_THUMB_MAX;
     const pic = r.kind === 'image' && open ? h('img', { src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
-      // a video plays in its tile with the browser's own controls; nothing of it is fetched until then
-      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'none', controls: true, playsinline: true })
+      // a video plays in its tile with the browser's own controls. Only its header is fetched before that:
+      // with nothing fetched, Roam's desktop app draws the player's loading circle over the still for good
+      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'metadata', controls: true, playsinline: true })
       : icon(KIND_ICON[r.kind]);
     // its picture is the shared still (videoStillUrl); a video this browser has no decoder for keeps the icon and gets no player
     if (pic instanceof HTMLVideoElement) videoStillUrl(r, () => pic.isConnected).then((s) => {

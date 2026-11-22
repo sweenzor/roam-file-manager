@@ -282,7 +282,7 @@ async function main() {
   // the browser's player draws a spinner over the still for as long as it is fetching
   const tileVideo = () => evalIn((v) => { const e = document.querySelector(`${v} .rfm-tile video`); return { network: e.networkState, ready: e.readyState, preload: e.preload, paused: e.paused }; }, VIEW);
   log('the video in its tile:', JSON.stringify(await tileVideo()));
-  await waitFor('the video in its tile to be at rest', async () => (await tileVideo()).network !== 2, 20000).catch((e) => log('note:', e.message));
+  await waitFor('the video in its tile to be at rest', async () => { const v = await tileVideo(); return v.ready >= 1 && v.network !== 2; }, 20000).catch((e) => log('note:', e.message));
   log('the video in its tile:', JSON.stringify(await tileVideo()));
   await parkMouse();
   await snap('thumbnails', await boxOf(`${VIEW} .rm-pages-toolbar, ${VIEW} .rfm-tile`, 12));
