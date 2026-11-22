@@ -36,6 +36,17 @@ await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)', 
 const t0 = Date.now();
 await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].slice(1, 12).every((e) => e.textContent), null, { timeout: 60000 });
 console.log('sizes on the first screen after', Date.now() - t0, 'ms');
+// several hundred files to fetch sizes for: past a second, a bar shows how far that has got
+const bar = () => page.evaluate(() => { const m = document.querySelector('.rfm-view .rfm-progress .bp3-progress-meter'); return m ? parseInt(m.style.width, 10) : null; });
+check('nothing shows progress in the first second', (await bar()) === null && Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+await page.waitForFunction(() => !!document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 5000 }).catch(() => {});
+const early = await bar();
+await page.waitForTimeout(1500);
+const later = await bar();
+check('a long first load shows a progress bar that moves on', early !== null && early > 0 && (later === null || later > early), `${early}% then ${later}%`);
+await page.screenshot({ path: path.join(OUT, '0-first-load.png') });
+await page.waitForFunction(() => !document.querySelector('.rfm-view .rfm-progress'), null, { timeout: 60000 })
+  .then(() => check('the bar goes away when every file has its size', true), () => check('the bar goes away when every file has its size', false));
 const info = () => page.evaluate(() => {
   const rows = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')];
   const sc = document.querySelector('.rfm-scroller');
@@ -128,6 +139,16 @@ await page.waitForFunction((n) => window.roamAlphaAPI.ui.rightSidebar.getWindows
   .then(() => check('its count opens every block that holds it in the right sidebar', true), () => check('its count opens every block that holds it in the right sidebar', false));
 check('the list stays open', await page.evaluate(() => !!document.querySelector('.rfm-view')));
 await page.waitForTimeout(1500);
+// next to the right sidebar the columns close up: nothing runs off the edge, and names keep their room
+await page.evaluate(() => window.roamAlphaAPI.ui.leftSidebar.close());
+await page.waitForTimeout(1000);
+const fit = await page.evaluate(() => {
+  const sc = document.querySelector('.rfm-scroller'), head = document.querySelector('.rfm-view .rm-pages-row-header');
+  return { view: document.querySelector('.rfm-view').clientWidth, over: Math.max(sc.scrollWidth - sc.clientWidth, head.scrollWidth - head.clientWidth), name: Math.round(document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rm-pages-title-col').getBoundingClientRect().width) };
+});
+check('with the right sidebar open the columns fit and names keep their room', fit.view < 1000 && fit.over <= 0 && fit.name >= 200, JSON.stringify(fit));
+await page.evaluate(() => window.roamAlphaAPI.ui.leftSidebar.open());
+await page.waitForTimeout(800);
 await page.screenshot({ path: path.join(OUT, '4-mentions-in-sidebar.png') });
 await page.evaluate(async () => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const w of s.getWindows()) await s.removeWindow({ window: { type: w.type, 'block-uid': w['block-uid'] } }); await s.close(); });
 await page.waitForTimeout(800);
