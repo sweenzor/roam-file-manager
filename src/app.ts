@@ -12,7 +12,9 @@ const graphName = (): string => api().graph.name;
  *  a file pasted from another graph belongs to that graph. */
 const ownPrefix = () => `imgs/app/${graphName()}/`;
 
-/** A load of sizes and dates that is over this quickly (ms) shows no progress toast. */
+/** Opening the list with this many sizes and dates to fetch shows the progress box at once ... */
+const PROGRESS_AT_ONCE = 50;
+/** ... and with fewer, only when they still aren't in after this long (ms): a slow connection. */
 const PROGRESS_AFTER = 1000;
 
 const STATE_KEY = 'roam-file-manager:view';
@@ -89,9 +91,12 @@ export class App {
     const ctl = this.fetching = new AbortController();
     // what is on screen first, then the rest in the order of the list
     const todo = new Map((this.view?.order() ?? this.rows).filter((r) => !this.meta.has(r.key)).map((r) => [r.key, r]));
-    // a first open has every file to fetch: past a second of that, the view shows how far it has got
-    const total = todo.size, started = Date.now();
-    let done = 0;
+    // a first open has every file to fetch: the view shows how far that has got, and waits for it
+    const total = todo.size;
+    let done = 0, shown = total >= PROGRESS_AT_ONCE;
+    const progress = () => { if (shown && !ctl.signal.aborted) this.view?.progress(done / total); };
+    const late = window.setTimeout(() => { shown = done < total; progress(); }, PROGRESS_AFTER);
+    progress();
     const next = (): Row | undefined => {
       for (const k of this.view?.inView() ?? []) { const r = todo.get(k); if (r) { todo.delete(k); return r; } }
       for (const [k, r] of todo) { todo.delete(k); return r; }
@@ -115,12 +120,13 @@ export class App {
           else if (m) { this.meta.set(r.key, m); pending.push([r.key, m]); }
         } catch { /* offline or aborted: try again next time */ }
         done++;
-        if (!ctl.signal.aborted && Date.now() - started > PROGRESS_AFTER) this.view?.progress(done / total);
+        progress();
         await flush();
       }
     }));
+    window.clearTimeout(late);
     if (ctl.signal.aborted) return;
-    this.view?.progress(1);
+    this.view?.progress(null);
     await flush(true);
     if (gone.length) {
       await forget(graphName(), gone).catch(() => {});

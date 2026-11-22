@@ -37,26 +37,36 @@ await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)', 
 const t0 = Date.now();
 await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].slice(1, 12).every((e) => e.textContent), null, { timeout: 60000 });
 console.log('sizes on the first screen after', Date.now() - t0, 'ms');
-// several hundred files to fetch sizes for: past a second, a toast like Roam's for an upload shows how far that has got
-const bar = () => page.evaluate(() => { const m = document.querySelector('.rfm-toast .bp3-progress-meter'); return m ? parseInt(m.style.width, 10) : null; });
-check('nothing shows progress in the first second', (await bar()) === null && Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
-await page.waitForFunction(() => !!document.querySelector('.rfm-toast'), null, { timeout: 5000 }).catch(() => {});
-const early = await bar();
-await page.waitForTimeout(1500);
-const later = await bar();
-check('a long first load shows a progress bar that moves on', early !== null && early > 0 && (later === null || later > early), `${early}% then ${later}%`);
-const spot = await page.evaluate(() => {
-  const t = document.querySelector('.rfm-toast .bp3-toast'), r = t?.getBoundingClientRect();
-  return r && { top: Math.round(r.top), off: Math.round(r.left + r.width / 2 - innerWidth / 2), icon: !!t.querySelector('.bp3-icon-folder-close'), text: t.textContent, striped: !!t.querySelector('.bp3-progress-bar.bp3-intent-primary:not(.bp3-no-stripes)'), inView: !!t.closest('.rfm-view') };
+// several hundred files to fetch sizes for: a progress box in the middle of the view, and the list waits under it
+const loader = () => page.evaluate(() => {
+  const box = document.querySelector('.rfm-view .rfm-loader-box'), view = document.querySelector('.rfm-view');
+  if (!box) return null;
+  const b = box.getBoundingClientRect(), v = view.getBoundingClientRect();
+  const hit = document.elementFromPoint(v.left + 80, v.top + 200);
+  return {
+    pct: parseInt(box.querySelector('.bp3-progress-meter').style.width, 10),
+    dx: Math.round(b.left + b.width / 2 - (v.left + v.width / 2)), dy: Math.round(b.top + b.height / 2 - (v.top + innerHeight) / 2),
+    text: box.textContent, striped: !!box.querySelector('.bp3-progress-bar.bp3-intent-primary:not(.bp3-no-stripes)'),
+    locked: [...view.querySelectorAll(':scope > .rm-pages-toolbar, :scope > .table')].every((e) => e.inert && getComputedStyle(e).pointerEvents === 'none'),
+    dimmed: +getComputedStyle(view.querySelector(':scope > .table')).opacity < 0.6, onTop: !!hit?.closest('.rfm-loader'),
+  };
 });
-check('it is a toast where Roam shows its own: top of the window, centred, an icon and a striped bar, no text',
-  spot && spot.top === 20 && spot.off === 0 && spot.icon && spot.text === '' && spot.striped && !spot.inView, JSON.stringify(spot));
+const early = await loader();
+check('a first load with many files shows a progress box at once', early !== null && Date.now() - t0 < 1500, `${Date.now() - t0} ms, ${early?.pct}%`);
+check('the box is in the middle of the view: a striped bar, no text', early && early.dx === 0 && Math.abs(early.dy) <= 1 && early.text === '' && early.striped, JSON.stringify(early));
+check('the list under it is dimmed and takes no clicks or keys', early && early.locked && early.dimmed && early.onTop);
+const sortedBy = () => page.evaluate(() => document.querySelector('.rfm-view .sort-button.focused')?.closest('[data-col]')?.dataset.col);
+await page.mouse.click(...(await page.evaluate(() => { const r = document.querySelector('.rfm-view [data-col="size"] .sort-button.desc').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })));
+check('a click on a sort arrow does nothing while it loads', (await loader()) !== null && (await sortedBy()) === 'added', await sortedBy());
+await page.waitForTimeout(1500);
+const later = await loader();
+check('the bar moves on', early && (later === null || later.pct > early.pct), `${early?.pct}% then ${later?.pct}%`);
 await page.screenshot({ path: path.join(OUT, '0-first-load.png') });
-await page.waitForFunction(() => !!document.querySelector('.rfm-toast .bp3-progress-bar.bp3-intent-success.bp3-no-stripes'), null, { timeout: 60000 })
-  .then(() => check('the bar turns green when every file has its size', true), () => check('the bar turns green when every file has its size', false));
-const tDone = Date.now();
-await page.waitForFunction(() => !document.querySelector('.rfm-toast'), null, { timeout: 10000 })
-  .then(() => check('the toast leaves about two seconds later', Date.now() - tDone > 1500 && Date.now() - tDone < 4000, `${Date.now() - tDone} ms`), () => check('the toast leaves about two seconds later', false));
+await page.waitForFunction(() => !document.querySelector('.rfm-view .rfm-loader'), null, { timeout: 60000 }).catch(() => {});
+check('when every file has its size the box goes and the list can be used', await page.evaluate(() => {
+  const view = document.querySelector('.rfm-view');
+  return !view.querySelector('.rfm-loader') && !view.classList.contains('rfm-loading') && !view.querySelector('[inert]');
+}));
 const info = () => page.evaluate(() => {
   const rows = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')];
   const sc = document.querySelector('.rfm-scroller');
@@ -287,43 +297,46 @@ await page.waitForTimeout(1500);
 check('the header row measures the same as the one of All Pages', ownHeader === await headerOf(), ownHeader);
 check('All Pages closes the list', await page.evaluate(() => !document.querySelector('.rfm-view') && !!document.querySelector('#all-pages-search')));
 
+// A sort that takes a while (tens of thousands of files; here: made slow) puts the same box up while it runs.
+await page.click('.rm-left-sidebar__files');
+await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
+await page.evaluate(() => {
+  const sort = Array.prototype.sort;
+  window.__realSort = sort;
+  Array.prototype.sort = function (...a) { if (this.length > 100 && this[0]?.uses) { const t = performance.now(); while (performance.now() - t < 400); } return sort.apply(this, a); };
+  window.__box = [];
+  new MutationObserver(() => {
+    const view = document.querySelector('.rfm-view'), on = !!view?.querySelector('.rfm-loader');
+    if (on !== (window.__box.at(-1)?.on ?? false)) window.__box.push({ on, pct: view?.querySelector('.rfm-loader .bp3-progress-meter')?.style.width, inert: !!view?.querySelector('[inert]'), first: view?.querySelector('.rfm-scroller .rm-pages-title-text')?.textContent });
+  }).observe(document.body, { childList: true, subtree: true });
+});
+const firstName = () => page.evaluate(() => document.querySelector('.rfm-view .rfm-scroller .rm-pages-title-text')?.textContent);
+await page.click('.rfm-view [data-col="name"] .sort-button:not(.desc)'); // this one is timed: 400 ms
+await page.waitForTimeout(700);
+const before = await firstName();
+check('a first slow sort is not announced: nothing told it would be slow', await page.evaluate(() => window.__box.length === 0));
+await page.click('.rfm-view [data-col="name"] .sort-button.desc');
+await page.waitForTimeout(1200);
+const seen = await page.evaluate(() => window.__box);
+check('the next sort of that kind shows the box while it runs, then the sorted list',
+  seen.length === 2 && seen[0].on && seen[0].pct === '100%' && !seen[0].inert && seen[0].first === before && !seen[1].on && (await firstName()) !== before, JSON.stringify(seen));
+await page.evaluate(() => { Array.prototype.sort = window.__realSort; window.__box.length = 0; });
+await page.click('.rfm-view [data-col="name"] .sort-button:not(.desc)'); // expected slow, turns out fast: corrected
+await page.waitForTimeout(600);
+await page.evaluate(() => { window.__box.length = 0; });
+await page.click('.rfm-view [data-col="name"] .sort-button.desc');
+await page.waitForTimeout(600);
+check('a fast sort shows no box', await page.evaluate(() => window.__box.length === 0), JSON.stringify(await page.evaluate(() => window.__box)));
+await page.click('.rfm-view [data-col="added"] .sort-button.desc');
+await page.click('.rm-left-sidebar__daily-notes');
+await page.waitForTimeout(800);
+
 // unload leaves nothing behind
 await page.click('.rm-left-sidebar__files');
 await page.waitForSelector('.rfm-view');
 await page.evaluate(() => window.__ext.onunload());
 await page.waitForTimeout(800);
 check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager]')));
-
-// A first load again (a new browser profile has nothing kept): the toast goes when the list is left,
-// and stays away once it has been closed.
-{
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
-  await page.goto('https://roamresearch.com/#/app/help', { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
-  await page.waitForTimeout(3000);
-  await page.addStyleTag({ content: '.bp3-portal .bp3-toast-container{display:none!important}' });
-  await page.evaluate(async (code) => {
-    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-    window.__ext = (await import(url)).default;
-    window.__ext.onload({ extensionAPI: {} });
-    await window.roamAlphaAPI.ui.leftSidebar.open();
-  }, code);
-  const toast = () => page.evaluate(() => !!document.querySelector('.rfm-toast'));
-  await page.click('.rm-left-sidebar__files');
-  await page.waitForSelector('.rfm-toast', { timeout: 10000 }).catch(() => {});
-  const shown = await toast();
-  await page.click('.rm-left-sidebar__all-pages');
-  await page.waitForTimeout(1200);
-  check('leaving the list takes the progress toast away', shown && !(await toast()), `shown ${shown}`);
-  await page.click('.rm-left-sidebar__files');
-  await page.waitForSelector('.rfm-toast', { timeout: 10000 }).catch(() => {});
-  const again = await toast();
-  await page.click('.rfm-toast .bp3-button');
-  await page.waitForTimeout(1500);
-  const closed = !(await toast());
-  const loading = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-col-size')].length > 0);
-  check('its close button closes the toast for that load', again && closed && loading, `shown ${again}, closed ${closed}`);
-}
 
 await browser.close();
 const failed = checks.filter((c) => !c.ok);

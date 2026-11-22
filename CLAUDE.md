@@ -43,4 +43,5 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 - Follow Roam's existing UI patterns and class names. No invented text: no empty states, hints or tooltips.
 - Never delete a file without the user confirming. A file that blocks still mention can be deleted (Matthew, 2026-11-22), but only behind the warning in the confirmation (broken images, can't be undone), and Enter must not confirm it.
 - The help-graph test must never confirm a delete: those are Roam's own files.
+- Waiting (Matthew, 2026-11-22): something custom for this view, not Roam's toast. A box with a progress bar in the middle of the view, the list dimmed and locked under it, while the first open fetches sizes (`FilesView.progress`), and while a sort predicted to take over 250 ms runs. No text in it.
 - Words come from Roam's All Pages: a file's uses are its Mentions. The count opens the blocks in the right sidebar and the list stays open, as All Pages does.

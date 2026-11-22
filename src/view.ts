@@ -9,8 +9,15 @@ import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, ty
 export const ROW_H = 39;
 /** Below this width (the right sidebar open on a small window) the columns close up, so that names keep their room. */
 const NARROW = 1000;
-/** Roam's upload toast stays this long (ms) once it is done. */
-const TOAST_DONE_MS = 2000;
+/** A sort expected to take longer than this (ms) shows the progress box while it runs. */
+const SLOW_SORT_MS = 250;
+/** Runs fn once the browser has had the chance to draw what was just changed. */
+const afterPaint = (fn: () => void) => {
+  let ran = false;
+  const run = () => { if (!ran) { ran = true; fn(); } };
+  requestAnimationFrame(() => setTimeout(run));
+  setTimeout(run, 150); // a hidden window draws no frames
+};
 const OVERSCAN = 8;
 /** Roam stores no thumbnails, so a picture's preview is the picture itself: only small ones are shown. */
 const THUMB_MAX = 1.5 * 1024 * 1024;
@@ -54,6 +61,11 @@ export const STYLES = `
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-mentions{flex-basis:98px}
 .rm-all-pages.rfm-narrow .table .rm-pages-row .rfm-col-added{flex-basis:146px;white-space:nowrap}
 .rfm-view .rfm-scroller{position:relative;overflow:auto;will-change:transform}
+.rfm-view{position:relative}
+.rfm-view.rfm-loading>.rm-pages-toolbar,.rfm-view.rfm-loading>.table{opacity:.35;pointer-events:none;user-select:none}
+.rfm-loader{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;justify-content:center;cursor:progress;z-index:5}
+.rfm-loader-box{display:flex;align-items:center;gap:12px;width:300px;box-sizing:border-box;padding:16px;border-radius:3px;background:#fff;color:#5c7080;box-shadow:0 0 0 1px rgba(16,22,26,.1),0 2px 4px rgba(16,22,26,.2),0 8px 24px rgba(16,22,26,.2)}
+.bp3-dark .rfm-loader-box{background:#394b59;color:#a7b6c2}
 .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgb(245,248,250)}
 .rfm-view .rfm-thumb,.rfm-view .rfm-thumb-icon{cursor:default}
 .rfm-delete-content{display:flex;flex-direction:column;max-height:min(440px,60vh) !important}
@@ -218,9 +230,14 @@ export class FilesView {
   private drawn = new Map<number, HTMLDivElement>();
   private ro: ResizeObserver;
   private popover: HTMLElement | null = null;
-  private toast: HTMLDivElement | null = null;
-  private toastTimer = 0;
-  private toastClosed = false;
+  private parts: HTMLElement[];
+  private loader: HTMLDivElement | null = null;
+  private loading: number | null = null;
+  private sorting = false;
+  private sortRun = 0;
+  /** ms per n*log2(n) for a sort by each column. Measured on 100,000 files: by name 400 ms, the others
+   *  under 100 ms. Every sort that ran long enough to time corrects it. */
+  private sortCost: Record<SortKey, number> = { name: 2.4e-4, kind: 6e-5, size: 6e-5, mentions: 6e-5, added: 6e-5 };
 
   constructor(private actions: ViewActions, public state: ViewState = defaultState()) {
     const search = h('input', { class: 'bp3-input bp3-round bp3-minimal search-input', placeholder: 'Search Files', value: state.query,
@@ -249,14 +266,15 @@ export class FilesView {
       ...COLS.map((c) => this.headCell(c)));
     this.spacer = h('div', { style: { position: 'relative', width: '100%' } });
     this.scroller = h('div', { class: 'rfm-scroller', onScroll: () => { this.hidePreview(); this.draw(); } }, this.spacer);
-    this.el = h('div', { class: 'rm-all-pages rfm-view' }, toolbar, h('div', { class: 'table' }, this.header, this.scroller));
+    this.parts = [toolbar, h('div', { class: 'table' }, this.header, this.scroller)];
+    this.el = h('div', { class: 'rm-all-pages rfm-view' }, ...this.parts);
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
     this.applyHidden();
     this.applyGrid();
   }
 
-  destroy() { this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.progress(null); this.el.remove(); }
+  destroy() { this.sortRun++; this.sorting = false; this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.progress(null); this.el.remove(); }
 
   setRows(rows: Row[]) {
     this.rows = rows;
@@ -269,45 +287,41 @@ export class FilesView {
   updated() { this.refresh(); }
 
   /**
-   * How far a long fetch of sizes and dates has got (0 to 1), shown the way Roam shows a file being
-   * uploaded: a toast at the top of the window with an icon and a striped bar, which turns green
-   * for a moment at the end. null takes it away at once (the view is closing).
+   * How far the first fetch of sizes and dates has got (0 to 1): a box with a striped bar in the
+   * middle of the view. While it shows, the list underneath is dimmed and takes no clicks or keys,
+   * since sorting or deleting on half the sizes would mislead. null when there is nothing to wait for.
    */
   progress(done: number | null) {
-    if (done == null) { window.clearTimeout(this.toastTimer); this.toast?.remove(); this.toast = null; this.toastClosed = false; return; }
-    if (!this.toast) {
-      if (done >= 1) { this.toastClosed = false; return; }
-      if (this.toastClosed) return;
-      const box = h('div', { class: 'bp3-toast bp3-overlay-content bp3-toast-enter', tabindex: 0 },
-        icon('folder-close'),
-        h('span', { class: 'bp3-toast-message' }, h('div', { class: 'bp3-progress-bar bp3-intent-primary' }, h('div', { class: 'bp3-progress-meter' }))),
-        h('div', { class: 'bp3-button-group bp3-minimal' },
-          h('button', { class: 'bp3-button', type: 'button', onClick: () => { this.toastClosed = true; this.closeToast(); } }, icon('cross'))));
-      // Roam's own toasts: Blueprint's container at the top of the window, raised above Roam's panels
-      this.toast = h('div', { class: 'bp3-overlay bp3-overlay-open bp3-toast-container bp3-toast-container-top bp3-toast-container-in-portal roam-lift-toast rfm-toast' }, box);
-      document.body.append(this.toast);
-      requestAnimationFrame(() => box.classList.add('bp3-toast-enter-active'));
-    }
-    const bar = this.toast.querySelector('.bp3-progress-bar') as HTMLElement;
-    (bar.firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, done) * 100)}%`;
-    if (done >= 1) {
-      bar.className = 'bp3-progress-bar bp3-intent-success bp3-no-stripes';
-      window.clearTimeout(this.toastTimer);
-      this.toastTimer = window.setTimeout(() => this.closeToast(), TOAST_DONE_MS);
-    }
+    this.loading = done == null || done >= 1 ? null : done;
+    this.syncLoader();
   }
 
-  /** The toast leaves as Blueprint's do. */
-  private closeToast() {
-    const el = this.toast;
-    if (!el) return;
-    this.toast = null;
-    window.clearTimeout(this.toastTimer);
-    const box = el.firstElementChild as HTMLElement;
-    box.classList.remove('bp3-toast-enter', 'bp3-toast-enter-active');
-    box.classList.add('bp3-toast-exit');
-    requestAnimationFrame(() => box.classList.add('bp3-toast-exit-active'));
-    window.setTimeout(() => el.remove(), 300);
+  /** The box shows while sizes are being fetched (with how far that is) and while a long sort runs (a full, moving bar). */
+  private syncLoader() {
+    if (this.loading == null && !this.sorting) {
+      if (!this.loader) return;
+      this.loader.remove(); this.loader = null;
+      this.el.classList.remove('rfm-loading');
+      for (const p of this.parts) p.removeAttribute('inert');
+      return;
+    }
+    if (!this.loader) {
+      this.closePopover(); this.hidePreview();
+      this.loader = h('div', { class: 'rfm-loader' },
+        h('div', { class: 'rfm-loader-box' }, icon('folder-close'),
+          h('div', { class: 'bp3-progress-bar bp3-intent-primary' }, h('div', { class: 'bp3-progress-meter' }))));
+      this.el.append(this.loader);
+      this.el.classList.add('rfm-loading');
+      this.fitLoader();
+    }
+    // a sort is over in a moment and may have been started from the search box, which keeps its focus
+    for (const p of this.parts) p.toggleAttribute('inert', this.loading != null);
+    (this.loader.querySelector('.bp3-progress-meter') as HTMLElement).style.width = `${this.loading == null ? 100 : Math.round(this.loading * 100)}%`;
+  }
+
+  /** The progress box sits in the middle of what is on screen of the view: from its top to the bottom of the window. */
+  private fitLoader() {
+    if (this.loader) this.loader.style.height = `${Math.max(120, window.innerHeight - this.el.getBoundingClientRect().top)}px`;
   }
 
   /** The rows as listed, and the keys of those on screen now. */
@@ -320,13 +334,28 @@ export class FilesView {
   refresh() {
     const q = this.state.query.trim().toLowerCase();
     const { kinds, unusedOnly } = this.state;
-    this.shown = this.rows.filter((r) => (!kinds.size || kinds.has(r.kind)) && (!unusedOnly || r.unused)
+    const next = this.rows.filter((r) => (!kinds.size || kinds.has(r.kind)) && (!unusedOnly || r.unused)
       && (!q || r.name.toLowerCase().includes(q) || r.ext === q || r.uses.some((u) => u.pageTitle.toLowerCase().includes(q))));
-    this.shown.sort(compare(this.state.sort, this.state.desc));
     this.filterIcon.classList.toggle('filtered', kinds.size > 0 || unusedOnly);
-    this.measure();
-    this.updateHeader();
-    this.redraw();
+    const key = this.state.sort, desc = this.state.desc, run = ++this.sortRun;
+    const work = next.length > 1 ? next.length * Math.log2(next.length) : 0;
+    const slow = this.sortCost[key] * work > SLOW_SORT_MS;
+    const sort = () => {
+      if (run !== this.sortRun) return; // a newer refresh has taken over
+      const t = performance.now();
+      next.sort(compare(key, desc));
+      const ms = performance.now() - t;
+      if (work && (ms >= 5 || slow)) this.sortCost[key] = Math.max(ms, 0.5) / work;
+      this.shown = next;
+      this.measure();
+      this.updateHeader();
+      this.redraw();
+      this.sorting = false;
+      this.syncLoader();
+    };
+    // A sort that will take a while (tens of thousands of files) would freeze the list with no sign
+    // of why: the progress box goes up first, and the sort runs once it is on screen.
+    if (slow) { this.sorting = true; this.updateHeader(); this.syncLoader(); afterPaint(sort); } else sort();
   }
 
   private layout() {
@@ -336,6 +365,7 @@ export class FilesView {
     const top = this.scroller.getBoundingClientRect().top;
     const room = window.innerHeight - top - 16;
     this.scroller.style.height = `${Math.max(ROW_H * 4, room)}px`;
+    this.fitLoader();
     // a width change moves every tile
     if (this.measure()) this.redraw(); else this.draw();
   }
