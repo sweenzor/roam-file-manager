@@ -25,7 +25,7 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 ## Architecture
 
 - `src/files.ts`: pure functions. Finds Roam-hosted file URLs in block text, groups them by storage path, sorting, size format.
-- `src/scan.ts`: finds the blocks whose text has a firebasestorage URL. Which blocks: one datalog query, asked of Roam's backend (`roamAlphaAPI.data.backend.q`, off the window's thread; Roam runs it in the window itself for an encrypted, local or offline graph). The blocks themselves: `pull_many` in the window, 100 at a time with a pause between. The check before a delete (`keysAnywhere`) always searches in the window.
+- `src/scan.ts`: finds the blocks whose text has a firebasestorage URL. Which blocks: one datalog query for their uids, the only step that reads every block's text. The blocks themselves: `pull_many`, 100 at a time with a pause between.
 - `src/store.ts`: IndexedDB `roam-file-manager`: `meta` (size, upload time, original name from Firebase Storage metadata) and `seen` (files found in blocks, per graph).
 - `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan.
 - `src/view.ts`: the table. `videoStill(row, cls)` / `videoStillUrl(row)` give a video's still (first frame, decoded once, kept in IndexedDB; the icon when this browser has no decoder, e.g. HEVC on Linux): use them wherever a video needs a picture. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows.
@@ -40,11 +40,12 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 
 ## Reading a large graph (measured in the help graph: 13,495 blocks, 541 with a file)
 
-- One query in the window for the file blocks with their pages froze Roam for about 30 ms: 7 ms to read every block's text (0.55 ms per 1,000 blocks, grows with the graph) and the rest to join the 541 matches.
-- `data.backend.q` answers in about 290 ms with the window free, then parsing the answer takes about 13 ms for 541 uids (40 ms for 13,495). `pull_many` of 100 blocks by uid takes 4 ms. So the freeze no longer grows with the graph, only with the number of file blocks.
-- The backend can lag the window, so an open list reads the graph again 3 s and 10 s after opening (`READ_AGAIN` in `src/app.ts`).
-- Slicing the query by pages doesn't help: datascript scans every `:block/page` datom for each slice.
-- Not measured on a large graph: the test account has no plan, so it can't make a graph (a local graph opened by its address is read-only). Roam's engine scales linearly with rows up to 2 million (made-up rows passed in as a query input).
+- A query in the window stops Roam for as long as it runs (`async.q` too). One query for the file blocks with their pages took 30 ms: 7 ms to read every block's text (0.55 ms per 1,000 blocks, grows with the graph) and the rest to join the 541 matches. So the query now asks for uids only, and the blocks are read with `pull_many`, 100 at a time (4 ms each).
+- Scans nobody asked for (8 s after load, every 10 minutes) wait until nothing was typed or clicked for 3 s (`QUIET_MS` in `src/index.ts`).
+- Roam's engine scales linearly with rows, up to 2 million made-up rows passed in as a query input (that path is 14 times slower per row than the graph's own index, so its absolute times mean nothing).
+- Slicing the query by pages doesn't help: for a list of pages datascript scans every `:block/page` datom per slice; one page at a time uses the index but costs 0.3 ms a page.
+- `roamAlphaAPI.data.backend.q` (documented: "run against the backend (off thread)", runs locally when the graph has no backend, is encrypted or offline) answers in about 290 ms with the window free until the answer is parsed (13 ms for 541 uids). Not used: it reads the backend's copy of the graph, and whether that keeps up with a block written a second ago is not established. A build that used it failed Real Roam and Screenshots on 2026-11-22 (reason not pinned down); `run.mjs` logs what the backend answers next to the window, for the record.
+- `test/real-roam/big-graph.mjs` (the Big graph workflow) times all this in real Roam at several graph sizes. On a local graph of up to a million blocks when the test account can make one (on 2026-11-22 Roam answered "To create new local graphs you must choose a plan", and a local graph opened by its address is read-only). Otherwise on the hosted test graph, up to 300,000 blocks, on pages titled `rfm-big …` that it deletes again and checks are gone after a reload (`clean only` input for leftovers). It shares the `real-roam` concurrency group, and that group keeps only one waiting run: a push must not start more than two of Real Roam, Screenshots and Big graph.
 
 ## Rules
 

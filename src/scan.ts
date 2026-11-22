@@ -12,37 +12,19 @@ const CHUNK = 100;
 
 const pause = () => new Promise<void>((r) => setTimeout(r));
 
-/** The uids of the blocks whose text holds a file URL.
+/** Every block that holds a file, with its page.
  *
- *  Asked of Roam's backend (roamAlphaAPI.data.backend.q, "runs against the backend, off thread"), so
- *  Roam's window doesn't stop while a large graph is searched: the same search in the window takes
- *  about 0.5 ms per 1,000 blocks, all of it with Roam frozen. Roam itself runs the query in the window
- *  when the graph has no backend or it can't be reached (encrypted, local, offline). */
-async function fileBlocks(known: boolean, inWindow: boolean): Promise<string[]> {
-  const d = (window as any).roamAlphaAPI.data;
-  const local = async (): Promise<string[]> => (d.async?.q ? await d.async.q(FIND) : d.q(FIND)) ?? [];
-  if (inWindow || !d.backend?.q) return local();
-  let uids: string[] | null = null;
-  try { uids = await d.backend.q(FIND); } catch { /* the window can still answer */ }
-  // no answer, or none where files were found before: don't take the backend's word for it
-  if (!Array.isArray(uids) || (uids.length === 0 && known)) return local();
-  return uids;
-}
-
-/** True when Roam's backend can answer for this graph, so the window isn't the one that searches it. */
-export const hasBackend = (): boolean => {
-  const api = (window as any).roamAlphaAPI;
-  return !!api.data.backend?.q && api.graph?.type === 'hosted' && !api.graph?.isEncrypted;
-};
-
-/** Every block that holds a file, with its page. `known`: files have been found in this graph before.
- *  `inWindow`: search in the window whatever the graph, for an answer that can't be a moment behind.
+ *  Finding which blocks is the one step that reads every block's text, and Roam's window does nothing
+ *  else while it runs: about 0.5 ms per 1,000 blocks (measured). So that query asks for nothing but
+ *  the blocks' uids, and the blocks themselves are then read a hundred at a time with a pause between.
+ *  (One query for everything took four times as long in one piece.)
  *
- *  The blocks themselves are read in the window, a hundred at a time with a pause between, so what
- *  is listed is what the graph holds now: a block the backend named that is gone is left out. */
-export async function scanGraph(known = false, inWindow = false): Promise<Map<string, FileEntry>> {
+ *  Roam's backend can run the query off the window's thread (roamAlphaAPI.data.backend.q), but it
+ *  answers from its own copy of the graph, which can be behind the window's, and takes 0.3 s or more
+ *  to answer. A list of files has to show the graph as it is now, so the window does the search. */
+export async function scanGraph(): Promise<Map<string, FileEntry>> {
   const d = (window as any).roamAlphaAPI.data;
-  const uids = await fileBlocks(known, inWindow);
+  const uids: string[] = (d.async?.q ? await d.async.q(FIND) : d.q(FIND)) ?? [];
   const rows: BlockRow[] = [];
   for (let i = 0; i < uids.length; i += CHUNK) {
     if (i) await pause();
@@ -69,7 +51,7 @@ const ANYWHERE = `[:find ?s
 /** The storage paths of every file whose URL is anywhere in the graph. */
 export async function keysAnywhere(): Promise<Set<string>> {
   const api = (window as any).roamAlphaAPI;
-  const keys = new Set((await scanGraph(false, true)).keys());
+  const keys = new Set((await scanGraph()).keys());
   const rows: [string][] = api.data.async?.q ? await api.data.async.q(ANYWHERE) : api.data.q(ANYWHERE);
   for (const [text] of rows) for (const r of findRefs(text)) { const k = storageKey(r.url); if (k) keys.add(k); }
   return keys;

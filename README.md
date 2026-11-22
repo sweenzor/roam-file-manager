@@ -124,12 +124,9 @@ that was uploaded and removed again within a few minutes.
 <details>
 <summary><b>Large graphs</b></summary>
 
-Finding the files means looking through the text of every block. File Manager asks Roam's own backend to
-do that, so Roam doesn't stop while a large graph is searched. The backend can be a moment behind what
-you just typed: a file you pasted a second ago can take a few seconds to show up in the open list.
-
-A graph without a backend (an encrypted graph, a local graph, or any graph while you're offline) is
-searched in Roam's window instead, which holds Roam up for about half a millisecond per thousand blocks.
+Finding the files means looking through the text of every block, and Roam waits while that happens:
+about half a millisecond per thousand blocks, so a twentieth of a second for a graph of 100,000 blocks.
+It happens when you open **Files**, and every ten minutes at a moment when you aren't typing or clicking.
 </details>
 
 <details>
@@ -152,8 +149,8 @@ recording on a computer without HEVC support) keeps the video icon.
 
 File sizes, upload dates, video pictures and the list of files File Manager has seen are kept on your
 device, so each computer you use builds its own. Nothing is written to your graph, and nothing is sent
-anywhere except to Roam itself: its backend is asked which blocks hold a file, and its file storage is
-asked for a file's size and date, and to delete the files you confirm.
+anywhere except to Roam's own file storage, to read a file's size and date and to delete the files you
+confirm.
 </details>
 
 ## Development

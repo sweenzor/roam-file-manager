@@ -6,6 +6,7 @@ import { STYLES } from './view.ts';
 import { h } from './dom.ts';
 
 const RESCAN_MS = 10 * 60 * 1000;
+const QUIET_MS = 3000;
 
 let cleanup: (() => void)[] = [];
 
@@ -63,9 +64,24 @@ function onload() {
 
   // Roam can't list a graph's stored files, so the extension notes the files it sees in blocks, to
   // know later which of them no block uses any more. A scan when Roam is idle, then now and then.
-  const first = setTimeout(() => app.scan().catch(() => {}), 8000);
-  const timer = setInterval(() => { if (!document.hidden) app.scan().catch(() => {}); }, RESCAN_MS);
-  cleanup.push(() => { clearTimeout(first); clearInterval(timer); closeStore(); });
+  // Reading the graph holds Roam up for a moment (about 0.5 ms per 1,000 blocks), so a scan nobody
+  // asked for waits until nothing has been typed or clicked for a few seconds.
+  let lastInput = Date.now(), waiting = 0;
+  const input = () => { lastInput = Date.now(); };
+  for (const type of ['keydown', 'pointerdown', 'wheel']) document.addEventListener(type, input, { capture: true, passive: true });
+  const quietScan = () => {
+    clearTimeout(waiting);
+    const busy = QUIET_MS - (Date.now() - lastInput);
+    if (busy > 0) { waiting = window.setTimeout(quietScan, busy); return; }
+    if (!document.hidden) app.scan().catch(() => {});
+  };
+  const first = setTimeout(quietScan, 8000);
+  const timer = setInterval(quietScan, RESCAN_MS);
+  cleanup.push(() => {
+    clearTimeout(first); clearInterval(timer); clearTimeout(waiting);
+    for (const type of ['keydown', 'pointerdown', 'wheel']) document.removeEventListener(type, input, { capture: true });
+    closeStore();
+  });
 }
 
 function onunload() {
