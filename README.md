@@ -11,7 +11,7 @@ All Pages.
 - **Filter** by kind of file, or to files that no block mentions any more.
 - Click a file's name to open it. Hover over its picture to see it larger.
 - **Thumbnails**: the grid button next to the filter shows the files as pictures in place of the list.
-  Videos play in their tile. Sorting, search, the filter and deleting work the same.
+  Videos play in their tile. Sort them from the menu next to the trash. Search, the filter and deleting work the same.
 - **Mentions** counts the blocks a file is in, and the page it's on is shown next to its name. Click the
   count to open those blocks in the right sidebar, the way All Pages opens a page's mentions.
 - **Delete** files to free up their storage, whether or not a block still mentions them.

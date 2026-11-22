@@ -20,7 +20,7 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 - `src/scan.ts`: one datalog query for every block whose text has a firebasestorage URL.
 - `src/store.ts`: IndexedDB `roam-file-manager`: `meta` (size, upload time, original name from Firebase Storage metadata) and `seen` (files found in blocks, per graph).
 - `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan.
-- `src/view.ts`: the table. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows. `state.grid` draws the same rows as tiles (thumbnail view): same header, selection and virtual drawing, several files to a line.
+- `src/view.ts`: the table. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows. `state.grid` draws the same rows as tiles (thumbnail view): same selection and virtual drawing, several files to a line. Tiles have no columns, so the header row is hidden and the toolbar carries a select-all box and one sort control (menu of the column names plus a direction arrow), as file browsers do in their icon views.
 - `src/index.ts`: `onload`/`onunload`. Registers the view with `roamAlphaAPI.ui.mainWindow.registerComponent(id, Component)` and opens it with `openComponent(id)`; adds the left sidebar row.
 
 ## Facts about Roam uploads (measured)

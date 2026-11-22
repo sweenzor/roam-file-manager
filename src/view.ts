@@ -24,6 +24,7 @@ const COLS: Col[] = [
   { key: 'added', label: 'ADDED', cls: 'rfm-col-added', sortable: true, hideable: true },
 ];
 const COL_NAMES: Record<string, string> = { kind: 'Type', size: 'Size', mentions: 'Mentions', added: 'Added' };
+const SORT_NAMES: Record<SortKey, string> = { name: 'Name', ...COL_NAMES } as Record<SortKey, string>;
 
 export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs'], ['audio', 'Audio'], ['video', 'Video'], ['other', 'Other files']];
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
@@ -61,7 +62,12 @@ export const STYLES = `
 .rfm-view .rfm-tile-meta{display:flex;align-items:center;gap:8px;height:22px;color:#8a9ba8;white-space:nowrap}
 .rfm-view .rfm-tile-meta>*{flex:0 0 auto}
 .rfm-view .rfm-tile-meta .rfm-col-mentions{margin-left:auto}
-.rfm-view.rfm-grid .rfm-scroller{margin-top:16px}
+.rfm-view.rfm-grid .rm-pages-row-header{display:none}
+.rfm-view .rfm-grid-only{display:none}
+.rfm-view.rfm-grid .rfm-grid-only{display:inline-flex}
+.rfm-view .toolbar-action-button-group{display:flex;align-items:center}
+.rfm-view .rfm-grid-all{margin:0 6px 0 12px}
+.rfm-view .rfm-sort-button{margin-left:8px}
 .rfm-hide-kind .rfm-col-type,.rfm-hide-size .rfm-col-size,.rfm-hide-mentions .rfm-col-mentions,.rfm-hide-added .rfm-col-added{display:none}
 .bp3-dark .rfm-view .rm-pages-title-text{color:inherit}
 .bp3-dark .rfm-view .rm-pages-row:not(.rm-pages-row-header):hover{background:rgba(255,255,255,.04)}
@@ -114,6 +120,9 @@ export class FilesView {
   private trash: HTMLButtonElement;
   private filterIcon: HTMLSpanElement;
   private gridIcon: HTMLSpanElement;
+  private gridAll: HTMLInputElement;
+  private sortLabel: HTMLSpanElement;
+  private sortDir: HTMLSpanElement;
   /** How the rows are laid out now: files per line, the height of a line, the width of a tile. */
   private per = 1; private lineH = ROW_H; private tileW = 0;
   private headAll: HTMLInputElement;
@@ -130,8 +139,16 @@ export class FilesView {
     this.gridIcon = icon('grid-view', 'filter-icon');
     const gridBtn = h('span', { class: 'bp3-button bp3-minimal filter-button rfm-grid-button', tabindex: 0, onClick: () => this.setGrid(!this.state.grid) }, this.gridIcon);
     const eyeBtn = h('span', { class: 'bp3-button bp3-minimal filter-button', tabindex: 0, onClick: (e: Event) => this.toggleColumns(e.currentTarget as HTMLElement) }, icon('eye-open', 'filter-icon'));
+    // thumbnails have no columns to carry the header, so its two jobs move into the toolbar: a select-all
+    // box by the trash, and one sort control (what the files are sorted by, and an arrow for the direction)
+    this.gridAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.gridAll.checked) });
+    const gridAllBox = h('label', { class: 'bp3-control bp3-checkbox rfm-grid-only rfm-grid-all' }, this.gridAll, h('span', { class: 'bp3-control-indicator' }));
+    this.sortLabel = h('span', { class: 'bp3-button-text' });
+    const sortBtn = h('span', { class: 'bp3-button bp3-minimal rfm-grid-only rfm-sort-button', tabindex: 0, onClick: (e: Event) => this.toggleSort(e.currentTarget as HTMLElement) }, this.sortLabel, icon('caret-down'));
+    this.sortDir = icon('arrow-down');
+    const dirBtn = h('span', { class: 'bp3-button bp3-minimal rfm-grid-only rfm-sort-dir', tabindex: 0, onClick: () => this.sortBy(this.state.sort, !this.state.desc) }, this.sortDir);
     const toolbar = h('div', { class: 'flex-h-box rm-pages-toolbar' },
-      h('div', { class: 'toolbar-action-button-group' }, this.trash),
+      h('div', { class: 'toolbar-action-button-group' }, gridAllBox, this.trash, sortBtn, dirBtn),
       h('div', { class: 'toolbar-search-group' },
         h('div', { class: 'bp3-input-group' }, icon('search', 'search-icon'), search), filterBtn, gridBtn, eyeBtn));
     this.headAll = h('input', { type: 'checkbox', tabindex: 0, onChange: () => this.selectAll(this.headAll.checked) });
@@ -202,7 +219,8 @@ export class FilesView {
 
   private setGrid(on: boolean) {
     this.state.grid = on; this.hidePreview(); this.applyGrid();
-    this.scroller.scrollTop = 0; this.measure(); this.redraw(); this.actions.stateChanged();
+    // the header row comes or goes, so the room for the files changes too
+    this.scroller.scrollTop = 0; this.layout(); this.redraw(); this.actions.stateChanged();
   }
   private applyGrid() { this.el.classList.toggle('rfm-grid', this.state.grid); this.gridIcon.parentElement!.classList.toggle('bp3-active', this.state.grid); }
 
@@ -289,8 +307,10 @@ export class FilesView {
       cell.querySelector('.sort-button:not(.desc)')?.classList.toggle('focused', on && !this.state.desc);
       cell.querySelector('.sort-button.desc')?.classList.toggle('focused', on && this.state.desc);
     }
+    this.sortLabel.textContent = SORT_NAMES[this.state.sort];
+    this.sortDir.className = `bp3-icon bp3-icon-arrow-${this.state.desc ? 'down' : 'up'}`;
     const sel = this.selectedRows();
-    this.headAll.checked = sel.length > 0 && sel.length === this.shown.filter((r) => r.own).length;
+    this.headAll.checked = this.gridAll.checked = sel.length > 0 && sel.length === this.shown.filter((r) => r.own).length;
     // like All Pages' trash: on when something is ticked
     const ok = sel.length > 0;
     this.trash.disabled = !ok;
@@ -310,10 +330,10 @@ export class FilesView {
   // ---------- popovers (Blueprint markup, like All Pages' column switches) ----------
   private closePopover() { this.popover?.remove(); this.popover = null; document.removeEventListener('mousedown', this.outside, true); }
   private outside = (e: MouseEvent) => { if (this.popover && !this.popover.contains(e.target as Node)) this.closePopover(); };
-  private openPopover(anchor: HTMLElement, body: HTMLElement, width = 220) {
+  private openPopover(anchor: HTMLElement, body: HTMLElement, width = 220, left = false) {
     this.closePopover();
     const r = anchor.getBoundingClientRect();
-    this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))}px`, zIndex: '20' } },
+    this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(left ? r.left : r.right - width, window.innerWidth - width - 8))}px`, zIndex: '20' } },
       h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content' }, body))));
     document.body.append(this.popover);
     setTimeout(() => document.addEventListener('mousedown', this.outside, true));
@@ -356,6 +376,15 @@ export class FilesView {
   private switchEl(label: string, on: boolean, change: (on: boolean) => void) {
     const input = h('input', { type: 'checkbox', checked: on, onChange: () => change(input.checked) });
     return h('label', { class: 'bp3-control bp3-switch bp3-align-right' }, input, h('span', { class: 'bp3-control-indicator' }), h('span', { style: { fontWeight: '400' } }, label));
+  }
+  /** Thumbnail view's sort menu: the list's column names; picking the one in use flips the direction. */
+  private toggleSort(anchor: HTMLElement) {
+    if (this.popover) return this.closePopover();
+    this.openPopover(anchor, h('ul', { class: 'bp3-menu rfm-sort-menu' },
+      ...(Object.keys(SORT_NAMES) as SortKey[]).map((k) => h('li', {},
+        h('a', { class: `bp3-menu-item${k === this.state.sort ? ' bp3-active' : ''}`, tabindex: 0, 'data-sort': k,
+          onClick: () => { this.closePopover(); this.sortBy(k, k === this.state.sort ? !this.state.desc : k !== 'name'); } },
+          h('div', { class: 'bp3-text-overflow-ellipsis bp3-fill' }, SORT_NAMES[k]))))), 150, true);
   }
   private toggleColumns(anchor: HTMLElement) {
     if (this.popover) return this.closePopover();
