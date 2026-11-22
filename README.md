@@ -73,7 +73,7 @@ When you delete a block that holds an upload, Roam keeps the file in its storage
 ## Thumbnails
 
 The grid button above the list shows the files as thumbnails: each file's picture with its name, type,
-size and mentions. A video plays in its thumbnail. Click the button again for the list.
+size and mentions. Point at a video for its player: it plays in its thumbnail. Click the button again for the list.
 
 ![The files as thumbnails, with the sort button next to the search](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/thumbnails.png)
 

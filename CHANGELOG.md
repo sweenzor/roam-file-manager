@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Thumbnail view: a button next to the filter shows the files as pictures in place of the list. Videos play in their tile.
+- Thumbnail view: a button next to the filter shows the files as pictures in place of the list. Videos play in their tile, with the player's controls once the pointer is on them.
 
 ## 0.1.0
 
