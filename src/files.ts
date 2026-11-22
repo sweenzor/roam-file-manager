@@ -124,8 +124,8 @@ export function inUse(rows: Row[]): { files: number; blocks: number; images: boo
   };
 }
 
-/** The warning's sentence, e.g. "2 of these files are still in 5 blocks, which will be left with broken images." */
-// one block: "a broken image"
+/** The warning's sentence, e.g. "2 of these files are still in 5 blocks, which will be left with broken images."
+ *  With one block it reads "a broken image". */
 export function inUseWarning(rows: Row[]): string {
   const u = inUse(rows);
   if (!u.files) return '';
