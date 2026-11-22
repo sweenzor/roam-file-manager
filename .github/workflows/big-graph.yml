@@ -2,14 +2,16 @@
 # the files and opening the list take at each size, and how long Roam's window stalls meanwhile. The graph
 # is a local one made for the run and filled with made-up notes; nothing is written to a hosted graph.
 # See test/real-roam/big-graph.mjs. Run it by hand (Actions -> Big graph -> Run workflow) when the way
-# files are found changes. It also runs on a pull request that changes the script or this file.
+# files are found changes. It also runs, at smaller sizes, when a push changes the script or this file.
 #
 # Needs the same ROAM_EMAIL and ROAM_PASSWORD secrets as Real Roam (Roam asks for a sign-in before it
 # opens a local graph). The results are printed at the end of the run's log and in its summary.
 name: Big graph
 
 on:
-  pull_request:
+  # only a push that itself changes these files: on pull_request, paths would match every push to a
+  # pull request that holds them
+  push:
     paths:
       - test/real-roam/big-graph.mjs
       - .github/workflows/big-graph.yml
@@ -32,7 +34,6 @@ concurrency:
 
 jobs:
   big-graph:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -93,7 +94,7 @@ jobs:
         env:
           ROAM_EMAIL: ${{ secrets.ROAM_EMAIL }}
           ROAM_PASSWORD: ${{ secrets.ROAM_PASSWORD }}
-          BLOCKS: ${{ inputs.blocks || '20000,100000,300000,1000000' }}
+          BLOCKS: ${{ inputs.blocks || '20000,100000' }}
           FILES: ${{ inputs.files || '2000' }}
         run: |
           Xvfb :99 -screen 0 1440x900x24 >/dev/null 2>&1 &
