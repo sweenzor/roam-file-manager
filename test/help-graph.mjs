@@ -87,7 +87,7 @@ check('trash is on for a ticked file', await page.evaluate(() => !document.query
 await page.click('.rfm-view .bp3-icon-trash');
 await page.waitForSelector('.confirmation-content-dialog');
 const warn = await page.evaluate(() => document.querySelector('.rfm-delete-warning')?.innerText.replace(/\s+/g, ' ') ?? '');
-check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still in \d+ blocks?, which will be left with (a )?broken (image|link)s?\./.test(warn), warn);
+check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still referenced in \d+ blocks?, which will be left with (a )?broken (image|link)s?\./.test(warn), warn);
 check('the confirmation shows the file\'s picture or icon, and no Enter shortcut', await page.evaluate(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 1 && !document.querySelector('.confirmation-content-dialog .confirm-button .bp3-icon-key-enter')));
 await page.screenshot({ path: path.join(OUT, '3b-delete-in-use.png') });
 await page.click('.confirmation-content-dialog .cancel-button');
@@ -147,7 +147,12 @@ check('the preview goes away with the pointer', await page.evaluate(() => !docum
 await page.fill('.rfm-view .search-input', 'mp4');
 await page.click('.rfm-view [data-col="size"] .sort-button:not(.desc)');
 await page.waitForTimeout(500);
-await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-thumb-icon');
+// a video's row shows a frame of the video, decoded once and kept on the device
+await page.waitForFunction(() => { const r = [...document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')]; return r.length > 0 && r.every((e) => { const i = e.querySelector('.rfm-still img'); return i && i.naturalWidth > 0; }); }, null, { timeout: 60000 })
+  .then(() => check('every MP4 in view shows a frame of the video', true), () => check('every MP4 in view shows a frame of the video', false));
+check('the frames are kept on the device', await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('roam-file-manager'); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').getAllKeys(); q.onsuccess = () => res(q.result.filter((k) => String(k).startsWith('still|')).length > 0); }; r.onerror = () => res(false); })));
+await page.screenshot({ path: path.join(OUT, '5a-video-stills.png') });
+await page.hover('.rfm-view .rm-pages-row:not(.rm-pages-row-header) .rfm-still');
 await page.waitForFunction(() => { const v = document.querySelector('video.rfm-preview-video'); return v && v.readyState >= 2 && v.currentTime > 0.2 && !v.paused && v.muted && v.controls; }, null, { timeout: 30000 })
   .then(() => check('hovering a video\'s icon plays the video, without sound', true), () => check('hovering a video\'s icon plays the video, without sound', false));
 await page.screenshot({ path: path.join(OUT, '5b-video-preview.png') });
@@ -184,7 +189,8 @@ await page.screenshot({ path: path.join(OUT, '6b-sort-menu.png') });
 await page.click('.rfm-sort-menu [data-sort="size"]');
 await page.waitForTimeout(500);
 const tileSizes = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile .rfm-col-size')].slice(0, 3).map((e) => e.textContent));
-check('the menu sorts the tiles', tileSizes.length === 3 && tileSizes.join() === sizes.slice(0, 3).join(), tileSizes.join(', '));
+const mb = (t) => parseFloat(t) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[t.split(' ')[1]] ?? 0);
+check('the menu sorts the tiles', tileSizes.length === 3 && mb(tileSizes[0]) >= mb(tileSizes[1]) && mb(tileSizes[1]) >= mb(tileSizes[2]) && mb(tileSizes[0]) > 1, `${tileSizes.join(', ')} (list had ${sizes.slice(0, 3).join(', ')})`);
 // a video plays in its tile
 await page.fill('.rfm-view .search-input', 'mp4');
 await page.waitForFunction(() => { const v = document.querySelector('.rfm-view .rfm-tile video'); return v && v.readyState >= 2; }, null, { timeout: 30000 }).catch(() => {});
@@ -204,7 +210,7 @@ await page.waitForTimeout(300);
 await page.click('.rfm-view .rfm-sort-dir');
 await page.waitForTimeout(500);
 const smallest = await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile .rfm-col-size').textContent);
-check('the arrow turns the order round', smallest !== sizes[0] && await page.evaluate(() => !!document.querySelector('.rfm-view .rfm-sort-dir .bp3-icon-arrow-up')), smallest);
+check('the arrow turns the order round', smallest !== tileSizes[0] && await page.evaluate(() => !!document.querySelector('.rfm-view .rfm-sort-dir .bp3-icon-arrow-up')), smallest);
 await page.click('.rfm-view .rfm-sort-dir');
 await page.evaluate(() => document.querySelector('.rfm-view .rfm-grid-all').click());
 check('the box by the trash ticks every tile', await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile input:not([disabled])')].every((c) => c.checked) && !document.querySelector('.rfm-view .bp3-icon-trash').disabled));

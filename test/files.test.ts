@@ -73,9 +73,9 @@ test('the delete warning counts the files still in blocks and the blocks they br
   const use = (uid: string) => ({ uid, pageUid: 'p', pageTitle: 'P', time: 0, text: '' });
   const row = (key: string, kind: Row['kind'], uids: string[]): Row => ({ key, url: '', name: key, ext: 'x', kind, added: 0, uses: uids.map(use), size: 1, unused: !uids.length, own: true, lastUsed: 0 });
   assert.equal(inUseWarning([row('a', 'image', [])]), '');
-  assert.equal(inUseWarning([row('a', 'image', ['b1'])]), 'This file is still in 1 block, which will be left with a broken image.');
-  assert.equal(inUseWarning([row('a', 'pdf', ['b1', 'b2'])]), 'This file is still in 2 blocks, which will be left with broken links.');
-  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'video', ['b1', 'b2'])]), 'These files are still in 2 blocks, which will be left with broken images and links.');
-  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', []), row('c', 'image', [])]), '1 of these files is still in 1 block, which will be left with a broken image.');
-  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', ['b2']), row('c', 'image', [])]), '2 of these files are still in 2 blocks, which will be left with broken images.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1'])]), 'This file is still referenced in 1 block, which will be left with a broken image.');
+  assert.equal(inUseWarning([row('a', 'pdf', ['b1', 'b2'])]), 'This file is still referenced in 2 blocks, which will be left with broken links.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'video', ['b1', 'b2'])]), 'These files are still referenced in 2 blocks, which will be left with broken images and links.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', []), row('c', 'image', [])]), '1 of these files is still referenced in 1 block, which will be left with a broken image.');
+  assert.equal(inUseWarning([row('a', 'image', ['b1']), row('b', 'image', ['b2']), row('c', 'image', [])]), '2 of these files are still referenced in 2 blocks, which will be left with broken images.');
 });

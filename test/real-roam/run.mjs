@@ -19,7 +19,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   roam, log, sleep, evalIn, serve, stopServing, launchRoam, killRoam, waitFor, shot, signIn, openGraph,
-  dismissDialogs, loadDevExtension, extensionLoaded,
+  dismissDialogs, loadDevExtension, extensionLoaded, openSettings, clickLeaf,
 } from './roam.mjs';
 
 const EMAIL = process.env.ROAM_EMAIL, PASSWORD = process.env.ROAM_PASSWORD;
@@ -105,6 +105,8 @@ try {
   await openGraph(GRAPH);
   await loadDevExtension();
   check('loads through Roam Depot developer mode', await extensionLoaded());
+  // which video formats this build of Roam can show a frame of
+  log('browser', await evalIn(() => { const v = document.createElement('video'); const can = (c) => v.canPlayType(`video/mp4; codecs="${c}"`) || 'no'; return `${navigator.userAgent.match(/Chrome\/[\d.]+|Electron\/[\d.]+/g)?.join(' ')}; H.264 ${can('avc1.42E01E')}, HEVC ${can('hvc1.1.6.L93.B0')}`; }));
   check('Files sits under All Pages in the left sidebar', await evalIn(() => document.querySelector('.rm-left-sidebar__all-pages')?.nextElementSibling?.classList.contains('rm-left-sidebar__files')));
 
   // ---- four files on a test page ----
@@ -195,7 +197,7 @@ try {
   check('trash is on for a file that blocks still hold', !(await trashOff()));
   await openDialog();
   let warn = await warningText();
-  check('the confirmation warns that it leaves broken images and can\'t be undone', warn.includes('can\'t be undone') && warn.includes('This file is still in 2 blocks, which will be left with broken images.'), warn);
+  check('the confirmation warns that it leaves broken images and can\'t be undone', warn.includes('can\'t be undone') && warn.includes('This file is still referenced in 2 blocks, which will be left with broken images.'), warn);
   await waitFor('the picture in the confirmation', () => evalIn(() => { const i = document.querySelector('.confirmation-content-dialog img.rfm-delete-thumb'); return !!i && i.complete && i.naturalWidth > 0; }), 15000).then(
     () => check('the confirmation shows the picture', true), () => check('the confirmation shows the picture', false));
   await shot('delete-in-use-confirm');
@@ -282,7 +284,7 @@ try {
   await tick(NAMES.used);
   await openDialog();
   warn = await warningText();
-  check('warns about the one block', warn.includes('This file is still in 1 block, which will be left with a broken image.'), warn);
+  check('warns about the one block', warn.includes('This file is still referenced in 1 block, which will be left with a broken image.'), warn);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
   await waitFor('the deleted file to leave the list', async () => !(await rowOf(NAMES.used)), 30000);
   check('confirming deletes a file that was still in a block', [403, 404].includes(await stored(urls.used)), `storage answers ${await stored(urls.used)}`);
@@ -312,6 +314,25 @@ try {
     () => check('after a restart, a file whose block went away is still found as unused', false));
   await setSwitch('Unused', false);
   await closePopover();
+  // TEMPORARY probe (removed in the next commit): how Roam's own extension browser lays out and sorts its cards
+  try {
+    await openSettings();
+    await clickLeaf('Roam Depot');
+    await sleep(3000);
+    await evalIn(() => [...document.querySelectorAll('.bp3-dialog button, .bp3-dialog .bp3-button')].find((e) => /Browse/i.test(e.innerText))?.click());
+    await sleep(6000);
+    const probe = await evalIn(() => {
+      const d = [...document.querySelectorAll('.bp3-dialog, .bp3-overlay-content')].pop();
+      const ctl = [...d.querySelectorAll('button, .bp3-button, select, input, .bp3-html-select, .bp3-tab, [role=tab], .bp3-popover-target')].slice(0, 60)
+        .map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 60)} "${(e.innerText || e.placeholder || e.value || '').replace(/\s+/g, ' ').slice(0, 40)}"`);
+      const sel = [...d.querySelectorAll('select')].map((e) => [...e.options].map((o) => o.text).join(' | '));
+      return { text: d.innerText.replace(/\s+/g, ' ').slice(0, 1500), ctl, sel, cls: String(d.className) };
+    });
+    log('DEPOT-PROBE cls', probe.cls);
+    log('DEPOT-PROBE text', probe.text);
+    for (const c of probe.ctl) log('DEPOT-PROBE ctl', c);
+    for (const c of probe.sel) log('DEPOT-PROBE select', c);
+  } catch (e) { log('DEPOT-PROBE failed', e.message.split('\n')[0]); }
 } catch (e) {
   log('ERROR', e.message);
   await shot('error');

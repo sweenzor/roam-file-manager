@@ -2,6 +2,7 @@
 //  - meta: each file's Firebase Storage metadata (size, upload time, original name). It never
 //    changes for a stored file, so it is fetched once. A file deleted from here while blocks still
 //    held its link stays as a `gone` entry, so the dead links don't bring it back into the list.
+//    A video's still (its first frame, as a small JPEG) is kept there too, under `still|<key>`.
 //  - seen: every file of this graph the extension has found in a block, with when it last saw it in
 //    use. Roam can't list a graph's stored files, so this is how a file that no block uses any more
 //    is found: it was seen before and isn't in any block now.
@@ -46,6 +47,19 @@ export async function putMeta(entries: [string, Meta][]) {
   await done(t);
 }
 
+/** A video's still (a small JPEG data URL), kept beside its metadata so the video is only decoded once. */
+const stillKey = (key: string) => `still|${key}`;
+export async function getStill(key: string): Promise<string | undefined> {
+  const db = await open();
+  return req(db.transaction('meta').objectStore('meta').get(stillKey(key))) as Promise<string | undefined>;
+}
+export async function putStill(key: string, dataUrl: string) {
+  const db = await open();
+  const t = db.transaction('meta', 'readwrite');
+  t.objectStore('meta').put(dataUrl, stillKey(key));
+  await done(t);
+}
+
 export async function getSeen(graph: string): Promise<Seen[]> {
   const db = await open();
   return req(db.transaction('seen').objectStore('seen').index('graph').getAll(graph)) as Promise<Seen[]>;
@@ -62,7 +76,7 @@ export async function putSeen(rows: Seen[]) {
 export async function forget(graph: string, keys: string[]) {
   const db = await open();
   const t = db.transaction(['seen', 'meta'], 'readwrite');
-  for (const k of keys) { t.objectStore('seen').delete(`${graph}|${k}`); t.objectStore('meta').delete(k); }
+  for (const k of keys) { t.objectStore('seen').delete(`${graph}|${k}`); t.objectStore('meta').delete(k); t.objectStore('meta').delete(stillKey(k)); }
   await done(t);
 }
 

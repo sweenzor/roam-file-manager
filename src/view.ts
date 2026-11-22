@@ -3,6 +3,7 @@
 // styles it. Rows are virtual: only the rows in view (plus a margin) are in the DOM, so a graph
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
+import { getStill, putStill } from './store.ts';
 import { compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
 
 export const ROW_H = 39;
@@ -52,6 +53,8 @@ export const STYLES = `
 .rfm-delete-item .rm-clickable-pill{grid-column:3;grid-row:1 / span 2;margin-right:6px}
 .rfm-delete-item .rfm-delete-thumb{grid-row:1 / span 2;width:48px;height:48px;border-radius:3px;object-fit:cover;display:flex;align-items:center;justify-content:center;color:#8a9ba8}
 .rfm-delete-warning>.bp3-icon{position:absolute;left:10px;top:10px}
+.rfm-still{overflow:hidden}
+.rfm-still>img{width:100%;height:100%;object-fit:cover;border-radius:3px;display:block}
 .rfm-preview{padding:6px;line-height:0}
 .rfm-preview-img{max-width:360px;max-height:360px;border-radius:3px;display:block}
 .rfm-preview-video{max-width:480px;background:#000}
@@ -88,6 +91,80 @@ export function pagesOf(r: Row): string[] {
 
 /** Pictures and videos show a preview when the pointer is on their thumbnail or icon. */
 const previewable = (r: Row) => (r.kind === 'image' || r.kind === 'video') && !isEncrypted(r.key);
+
+// ---------- a video's still ----------
+// Roam stores no thumbnails, so a video's still is its own first frame: decoded once by this
+// browser, kept as a small JPEG on the device, and shown as an ordinary picture after that.
+// A video this browser has no decoder for (HEVC .mov files where the system can't decode HEVC)
+// has no frame to show and keeps the video icon.
+const STILL_MAX = 320, STILL_WAIT = 15000, STILLS_AT_ONCE = 3;
+const stills = new Map<string, string | false>();
+const stillsPending = new Map<string, Promise<string | false | undefined>>();
+/** Who is waiting for each still: rows are redrawn and scroll away, so the askers change while it waits its turn. */
+const stillsWanted = new Map<string, (() => boolean)[]>();
+let stillsRunning = 0;
+const stillsWaiting: (() => void)[] = [];
+
+function decodeStill(url: string): Promise<string | false> {
+  return new Promise((done) => {
+    const v = document.createElement('video');
+    let over = false;
+    const end = (s: string | false) => { if (over) return; over = true; clearTimeout(t); v.removeAttribute('src'); v.load(); done(s); };
+    const t = setTimeout(() => end(false), STILL_WAIT);
+    v.crossOrigin = 'anonymous'; v.muted = true; v.preload = 'metadata'; v.playsInline = true;
+    v.addEventListener('error', () => end(false));
+    v.addEventListener('loadeddata', () => {
+      // sound but no picture: the container opened, the video track has no decoder here
+      if (!v.videoWidth) return end(false);
+      try {
+        const k = Math.min(1, STILL_MAX / Math.max(v.videoWidth, v.videoHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(v.videoWidth * k)); c.height = Math.max(1, Math.round(v.videoHeight * k));
+        c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+        end(c.toDataURL('image/jpeg', 0.75));
+      } catch { end(false); }
+    });
+    v.src = `${url}#t=0.1`;
+  });
+}
+
+/** The still of a video as a data URL; false when this browser can't decode it; undefined when `wanted` said no by the time its turn came. */
+export function videoStillUrl(r: Row, wanted: () => boolean = () => true): Promise<string | false | undefined> {
+  const known = stills.get(r.key);
+  if (known !== undefined) return Promise.resolve(known);
+  let p = stillsPending.get(r.key);
+  stillsWanted.set(r.key, [...(stillsWanted.get(r.key) ?? []), wanted]);
+  if (!p) {
+    p = (async () => {
+      try {
+        const saved = await getStill(r.key).catch(() => undefined);
+        if (saved) { stills.set(r.key, saved); return saved; }
+        if (stillsRunning >= STILLS_AT_ONCE) await new Promise<void>((go) => stillsWaiting.push(go));
+        stillsRunning++;
+        try {
+          // rows scroll away: a video nobody is looking at any more isn't fetched
+          if (!(stillsWanted.get(r.key) ?? []).some((w) => w())) return undefined;
+          const s = await decodeStill(r.url);
+          stills.set(r.key, s);
+          if (s) putStill(r.key, s).catch(() => {});
+          return s;
+        } finally { stillsRunning--; stillsWaiting.pop()?.(); }
+      } finally { stillsPending.delete(r.key); stillsWanted.delete(r.key); }
+    })();
+    stillsPending.set(r.key, p);
+  }
+  return p;
+}
+
+/** The element for a video's still: its first frame, or the video icon while it loads and when there is no frame to show. */
+export function videoStill(r: Row, cls: string): HTMLElement {
+  const box = h('span', { class: `${cls} rfm-still` }, icon(KIND_ICON.video));
+  if (isEncrypted(r.key)) return box;
+  const show = (s: string | false | undefined) => { if (s) box.replaceChildren(h('img', { src: s, alt: '' })); };
+  const known = stills.get(r.key);
+  if (known !== undefined) show(known); else videoStillUrl(r, () => box.isConnected).then(show);
+  return box;
+}
 
 /** Removes a row and stops its thumbnail if it is still loading. */
 function drop(el: HTMLElement) {
@@ -252,6 +329,7 @@ export class FilesView {
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const thumb = r.kind === 'image' && r.size != null && r.size <= THUMB_MAX && !isEncrypted(r.key)
       ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
+      : r.kind === 'video' ? videoStill(r, 'rfm-thumb-icon')
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     if (previewable(r)) this.previewOn(thumb, r);
     const n = r.uses.length;
@@ -273,9 +351,13 @@ export class FilesView {
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const open = !isEncrypted(r.key) && r.size != null && r.size <= GRID_THUMB_MAX;
     const pic = r.kind === 'image' && open ? h('img', { src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
-      // a video's first frame, with the browser's own player controls: only the start of the file is fetched until it plays
-      : r.kind === 'video' && previewable(r) ? h('video', { src: `${r.url}#t=0.1`, preload: 'metadata', controls: true, playsinline: true })
+      // a video plays in its tile with the browser's own controls; nothing of it is fetched until then
+      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'none', controls: true, playsinline: true })
       : icon(KIND_ICON[r.kind]);
+    // its picture is the shared still (videoStillUrl); a video this browser has no decoder for keeps the icon and gets no player
+    if (pic instanceof HTMLVideoElement) videoStillUrl(r, () => pic.isConnected).then((s) => {
+      if (s) pic.poster = s; else if (s === false) pic.replaceWith(icon(KIND_ICON[r.kind]));
+    });
     // a video this browser can't play gets its icon, as a file with no picture does
     if (pic instanceof HTMLVideoElement) pic.addEventListener('error', () => pic.replaceWith(icon(KIND_ICON[r.kind])));
     const n = r.uses.length;
@@ -370,6 +452,8 @@ export class FilesView {
     if (!el.isConnected) return;
     const a = el.getBoundingClientRect();
     const video = r.kind === 'video';
+    // a video this browser can't decode has nothing to play
+    if (video && stills.get(r.key) === false) return;
     const box = h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', left: `${a.right + 10}px`, top: `${a.top}px`, zIndex: '30', visibility: 'hidden' } });
     // shown once the picture or video has a size, and kept inside the window
     const place = () => {
@@ -382,7 +466,10 @@ export class FilesView {
       ? h('video', { class: 'rfm-preview-img rfm-preview-video', src: r.url, autoplay: true, loop: true, playsinline: true, controls: true })
       : h('img', { class: 'rfm-preview-img', src: r.url, alt: '' });
     if (media instanceof HTMLVideoElement) media.muted = true;
-    media.addEventListener(video ? 'loadeddata' : 'load', place);
+    media.addEventListener(video ? 'loadeddata' : 'load', () => {
+      if (media instanceof HTMLVideoElement && !media.videoWidth) { if (this.preview?.contains(media)) this.hidePreview(); return; }
+      place();
+    });
     // a video this browser can't play (some .mov files) shows nothing
     media.addEventListener('error', () => { if (this.preview?.contains(media)) this.hidePreview(); });
     box.append(h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content rfm-preview' }, media)));
@@ -425,20 +512,14 @@ export class FilesView {
       this.switchEl('Unused', this.state.unusedOnly, (on) => { this.state.unusedOnly = on; this.refresh(); })));
   }
 
-  /** What is about to go: the picture itself, a video's first frame, or the file's icon. Hovering shows it larger, as in the list. */
+  /** What is about to go: the picture itself, a video's still, or the file's icon. Hovering shows it larger, as in the list. */
   private dialogThumb(r: Row): HTMLElement {
     const iconEl = () => h('span', { class: 'rfm-delete-thumb rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     let el: HTMLElement;
     if (isEncrypted(r.key)) el = iconEl();
     else if (r.kind === 'image' && (r.size ?? Infinity) <= DIALOG_THUMB_MAX) el = h('img', { class: 'rfm-delete-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' });
-    else if (r.kind === 'video') {
-      // metadata only: enough for the first frame, without fetching the video
-      const v = h('video', { class: 'rfm-delete-thumb', src: `${r.url}#t=0.1`, preload: 'metadata', playsinline: true });
-      v.muted = true;
-      // a video this browser can't play keeps its icon
-      v.addEventListener('error', () => { const i = iconEl(); if (previewable(r)) this.previewOn(i, r); v.replaceWith(i); });
-      el = v;
-    } else el = iconEl();
+    else if (r.kind === 'video') el = videoStill(r, 'rfm-delete-thumb rfm-thumb-icon');
+    else el = iconEl();
     if (previewable(r)) this.previewOn(el, r);
     return el;
   }
