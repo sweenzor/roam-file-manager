@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Thumbnail view: a button next to the filter shows the files as pictures in place of the list. Videos play in their tile, with the player's controls once the pointer is on them.
+
 ## 0.1.0
 
 - Files in the left sidebar: every file uploaded to the graph, with type, size, mentions and date added.

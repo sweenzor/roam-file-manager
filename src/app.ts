@@ -25,11 +25,12 @@ function loadState(): ViewState {
     if (['name', 'kind', 'size', 'mentions', 'added'].includes(v.sort)) s.sort = v.sort;
     if (typeof v.desc === 'boolean') s.desc = v.desc;
     if (Array.isArray(v.hidden)) s.hidden = new Set(v.hidden);
+    s.grid = v.grid === true;
   } catch { /* defaults */ }
   return s;
 }
 function saveState(s: ViewState) {
-  try { localStorage.setItem(STATE_KEY, JSON.stringify({ sort: s.sort, desc: s.desc, hidden: [...s.hidden] })); } catch { /* private mode */ }
+  try { localStorage.setItem(STATE_KEY, JSON.stringify({ sort: s.sort, desc: s.desc, hidden: [...s.hidden], grid: s.grid })); } catch { /* private mode */ }
 }
 
 export class App {

@@ -220,6 +220,70 @@ check('and goes away with the pointer', await page.evaluate(() => !document.quer
 await page.fill('.rfm-view .search-input', '');
 await page.click('.rfm-view [data-col="added"] .sort-button.desc');
 
+// thumbnail view: the button beside the filter swaps the rows for tiles, and the header keeps sorting them
+await page.click('.rfm-view .rfm-grid-button');
+await page.waitForSelector('.rfm-view .rfm-tile');
+const grid = await page.evaluate(() => {
+  const tiles = [...document.querySelectorAll('.rfm-view .rfm-tile')];
+  const tops = new Set(tiles.map((t) => t.style.top));
+  return { tiles: tiles.length, perLine: tiles.filter((t) => t.style.top === '0px').length, lines: tops.size, rows: document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)').length,
+    pressed: document.querySelector('.rfm-view .rfm-grid-button').classList.contains('bp3-active') };
+});
+check('the thumbnail button shows tiles, several to a line, in place of the rows', grid.perLine > 1 && grid.rows === 0 && grid.pressed, `${grid.perLine} to a line`);
+check('draws only the tiles in view', grid.tiles < 80, `${grid.tiles} tiles in the DOM`);
+await page.waitForFunction(() => [...document.querySelectorAll('.rfm-view .rfm-tile img')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 30000 })
+  .then(() => check('a tile shows its picture', true), () => check('a tile shows its picture', false));
+await page.waitForTimeout(2500);
+await page.screenshot({ path: path.join(OUT, '6-thumbnails.png') });
+check('thumbnails have no column header', await page.evaluate(() => getComputedStyle(document.querySelector('.rfm-view .rm-pages-row-header')).display === 'none'));
+await page.click('.rfm-view .rfm-sort-button');
+check('the sort button beside the search opens a menu with what is in use marked', await page.evaluate(() => {
+  const items = [...document.querySelectorAll('.rfm-sort-menu .bp3-menu-item')];
+  return items.length === 10 && items.filter((e) => e.classList.contains('bp3-active')).map((e) => e.innerText.trim()).join() === 'Added (newest first)';
+}));
+await page.screenshot({ path: path.join(OUT, '6b-sort-menu.png') });
+await page.click('.rfm-sort-menu [data-sort="size-desc"]');
+await page.waitForTimeout(500);
+const tileSizes = await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile .rfm-col-size')].slice(0, 3).map((e) => e.textContent));
+const mb = (t) => parseFloat(t) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[t.split(' ')[1]] ?? 0);
+check('the menu sorts the tiles', tileSizes.length === 3 && mb(tileSizes[0]) >= mb(tileSizes[1]) && mb(tileSizes[1]) >= mb(tileSizes[2]) && mb(tileSizes[0]) > 1, `${tileSizes.join(', ')} (list had ${sizes.slice(0, 3).join(', ')})`);
+// a video plays in its tile
+await page.fill('.rfm-view .search-input', 'mp4');
+await page.waitForSelector('.rfm-view .rfm-tile video', { timeout: 30000 }).catch(() => {});
+const atRest = await page.evaluate(() => { const v = document.querySelector('.rfm-view .rfm-tile video'); return v ? `${v.controls} ${v.preload} ${v.readyState}` : 'no video'; });
+check('a video tile at rest is its still alone: no controls, nothing fetched', atRest === 'false none 0', atRest);
+await page.hover('.rfm-view .rfm-tile video');
+const played = await page.evaluate(async () => {
+  const v = document.querySelector('.rfm-view .rfm-tile video');
+  if (!v || !v.controls) return 'no video with controls';
+  const t = v.currentTime; v.muted = true;
+  try { await v.play(); } catch (e) { return String(e); }
+  await new Promise((r) => setTimeout(r, 1500));
+  const moved = v.currentTime > t; v.pause();
+  return moved ? 'ok' : 'did not advance';
+});
+check('a video plays in its tile', played === 'ok', played);
+await page.screenshot({ path: path.join(OUT, '7-video-tile.png') });
+await page.fill('.rfm-view .search-input', '');
+await page.waitForTimeout(300);
+await page.click('.rfm-view .rfm-sort-button');
+await page.click('.rfm-sort-menu [data-sort="size-asc"]');
+await page.waitForTimeout(500);
+const smallest = await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile .rfm-col-size').textContent);
+check('the menu sorts the other way round too', smallest !== tileSizes[0], smallest);
+await page.click('.rfm-view .rfm-sort-button');
+await page.click('.rfm-sort-menu [data-sort="size-desc"]');
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-grid-all').click());
+check('the box by the trash ticks every tile', await page.evaluate(() => [...document.querySelectorAll('.rfm-view .rfm-tile input:not([disabled])')].every((c) => c.checked) && !document.querySelector('.rfm-view .bp3-icon-trash').disabled));
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-grid-all').click());
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
+check('trash is on for a ticked tile', await page.evaluate(() => !document.querySelector('.rfm-view .bp3-icon-trash').disabled));
+await page.evaluate(() => document.querySelector('.rfm-view .rfm-tile input:not([disabled])').click());
+check('the thumbnail view is remembered', await page.evaluate(() => JSON.parse(localStorage.getItem('roam-file-manager:view')).grid === true));
+await page.click('.rfm-view .rfm-grid-button');
+check('the button goes back to the list', await page.evaluate(() => !document.querySelector('.rfm-view .rfm-tile') && document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)').length > 0));
+await page.click('.rfm-view [data-col="added"] .sort-button.desc');
+
 // the last check before a delete reads every text in the graph
 const wide = await page.evaluate(async () => {
   const q = (s) => window.roamAlphaAPI.data.async.q(s);

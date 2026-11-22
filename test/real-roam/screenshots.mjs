@@ -274,6 +274,16 @@ async function main() {
   await parkMouse();
   await waitFor('the video to go away', () => evalIn(() => !document.querySelector('.rfm-preview')), 5000);
 
+  // The thumbnail view: the same files as tiles, the video with its still, the sort button by the search.
+  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await waitFor('every demo file as a tile', () => evalIn((v) => document.querySelectorAll(`${v} .rfm-tile`).length, VIEW).then((n) => n >= demo.names.length), 10000);
+  await waitFor('the pictures in the tiles', () => picturesLoaded(VIEW), 30000);
+  await waitFor('the video\'s still in its tile', () => evalIn((v) => !!document.querySelector(`${v} .rfm-tile video[poster]`), VIEW), 30000);
+  await parkMouse();
+  await snap('thumbnails', await boxOf(`${VIEW} .rm-pages-toolbar, ${VIEW} .rfm-tile`, 12));
+  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await waitFor('the list again', async () => mine(await rows()).length === demo.names.length, 10000);
+
   // 7. A mentions count opens the blocks in the right sidebar, and the list stays.
   await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.close()); // room for both
   await sleep(1000);

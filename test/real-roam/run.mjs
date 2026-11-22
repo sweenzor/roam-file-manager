@@ -196,6 +196,17 @@ try {
   const top = (await rows()).slice(0, 3).map((r) => r.name);
   check('newest files come first', top.every((n) => n?.includes(RUN)), top.join(', '));
   await shot('all-files');
+  // ---- thumbnail view: the same files as tiles, the uploaded picture drawn from Roam's storage ----
+  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await waitFor('the tiles', () => evalIn(() => document.querySelectorAll('.rfm-view .rfm-tile').length > 0), 5000);
+  const tiles = await evalIn(() => [...document.querySelectorAll('.rfm-view .rfm-tile')].slice(0, 3).map((t) => t.querySelector('.rfm-tile-name')?.textContent ?? ''));
+  check('the thumbnail button shows the same files as tiles', tiles.join() === top.join() && await evalIn(() => !document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')), tiles.join(', '));
+  await waitFor('a picture in a tile', () => evalIn(() => [...document.querySelectorAll('.rfm-view .rfm-tile img')].some((i) => i.complete && i.naturalWidth > 0)), 15000).then(
+    () => check('a tile shows the uploaded picture', true), () => check('a tile shows the uploaded picture', false));
+  await shot('thumbnails');
+  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await waitFor('the list again', () => evalIn(() => !document.querySelector('.rfm-view .rfm-tile') && !!document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)')), 5000);
+  check('the button goes back to the list', true);
   // ---- a file still in blocks can be deleted, behind a warning ----
   const dialogOpen = () => evalIn(() => !!document.querySelector('.confirmation-content-dialog'));
   const openDialog = async () => { await roam.page.click(`${VIEW} .bp3-icon-trash`); await waitFor('the confirmation', dialogOpen, 5000); };
