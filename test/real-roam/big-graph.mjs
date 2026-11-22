@@ -64,30 +64,33 @@ const screen = () => evalIn(() => {
 }).catch(() => 'page not readable');
 const graphOpen = () => evalIn((g) => !!(window.roamAlphaAPI?.data?.q && window.roamAlphaAPI.graph?.name === g
   && document.querySelector('.roam-main .roam-article, .roam-main .roam-log-container, .rm-title-display')), GRAPH);
+const canWrite = () => evalIn(() => { const a = window.roamAlphaAPI; return !!((a.data.block?.create ?? a.createBlock) && (a.data.page?.create ?? a.createPage)); });
 async function openLocalGraph() {
   const base = roam.page.url().split('#')[0];
-  // Roam lists local graphs as links to #/offline/<name>; going to the address of a new name makes it
-  await roam.page.goto(`${base}#/offline/${GRAPH}`);
-  try { await waitFor('the local graph', graphOpen, 45000); } catch {
-    log('not open by its address; Roam shows:', await screen());
-    // the form on the graph list: "New Local Graph Name", Enter
-    await roam.page.goto(`${base}#/app`);
-    await sleep(4000);
-    let field = roam.page.locator('input[placeholder="New Local Graph Name"]');
-    if (!(await field.count())) {
-      // the form may sit behind a tab or a button that names local graphs
-      await evalIn(() => [...document.querySelectorAll('button, .bp3-button, .bp3-tab, a, span, div')].find((e) => e.children.length === 0 && /^(new |create )?local graphs?$/i.test(e.textContent.trim()))?.click());
-      await sleep(1500);
-      field = roam.page.locator('input[placeholder="New Local Graph Name"]');
-    }
-    if (!(await field.count())) throw new Error(`no way found to make a local graph (Roam shows: ${await screen()})`);
-    await field.first().fill(GRAPH);
-    await field.first().press('Enter');
-    try { await waitFor('the new local graph', graphOpen, 60000); } catch { throw new Error(`the local graph did not open (Roam shows: ${await screen()})`); }
+  // The graph list has a form for it: "New Local Graph Name", then "Create Local Graph". (Going straight
+  // to #/offline/<name> opens a graph of that name too, but one that can't be written to.)
+  await roam.page.goto(`${base}#/app`);
+  await waitFor('the graph list', () => evalIn(() => /hosted graphs|local graphs?/i.test(document.body.innerText)), 60000).catch(() => {});
+  await sleep(2000);
+  log('graph list:', await screen(), '; local:', await evalIn(() => [...document.querySelectorAll('body *')].filter((e) => e.children.length === 0 && /local|plan\b|subscri/i.test(e.textContent) && e.textContent.length < 140).map((e) => `<${e.tagName.toLowerCase()}> ${e.textContent.trim()}`).slice(0, 12).join(' | ')));
+  let field = roam.page.locator('input[placeholder="New Local Graph Name"]');
+  if (!(await field.count())) {
+    // the form may sit behind a tab or a button that names local graphs
+    await evalIn(() => [...document.querySelectorAll('button, .bp3-button, .bp3-tab, a, span, div')].find((e) => e.children.length === 0 && /^(\+ ?)?(new |create |add )?local graphs?$/i.test(e.textContent.trim()))?.click());
+    await sleep(1500);
+    field = roam.page.locator('input[placeholder="New Local Graph Name"]');
+  }
+  if (!(await field.count())) throw new Error(`no form to make a local graph (Roam shows: ${await screen()})`);
+  await field.first().fill(GRAPH);
+  await sleep(300);
+  const create = roam.page.locator('button, .bp3-button', { hasText: /^Create Local Graph$/ });
+  if (await create.count()) await create.first().click(); else await field.first().press('Enter');
+  try { await waitFor('the new local graph', graphOpen, 60000); } catch {
+    throw new Error(`the local graph did not open (Roam shows: ${await screen()}; ${await evalIn(() => [...document.querySelectorAll('.bp3-dialog *, .bp3-callout, .bp3-toast-message, [class*="error"]')].filter((e) => e.children.length === 0 && e.textContent.trim()).map((e) => e.textContent.trim().slice(0, 120)).slice(0, 6).join(' | '))})`);
   }
   roam.signedIn = true;
   await dismissDialogs();
-  log('local graph open');
+  log('local graph open; can be written to:', await canWrite().catch(() => false));
 }
 
 // ---------- filling it ----------
