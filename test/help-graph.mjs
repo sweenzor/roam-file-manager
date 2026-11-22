@@ -338,6 +338,76 @@ await page.evaluate(() => window.__ext.onunload());
 await page.waitForTimeout(800);
 check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager]')));
 
+// Clicking away while the list loads (a new browser profile has nothing kept, so it is a first load again).
+{
+  const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+  const errors = [], fetches = [];
+  page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+  page.on('console', (m) => { if (m.text().includes('roam-file-manager')) errors.push(m.text().slice(0, 200)); });
+  // a file's size and date: its storage URL without the query (Roam itself fetches graph snapshots from the same host)
+  page.on('request', (r) => { if (r.resourceType() === 'fetch' && /firebasestorage\.googleapis\.com\/.*\/o\/imgs%2F[^?]*$/.test(r.url())) fetches.push(r.url()); });
+  await page.goto('https://roamresearch.com/#/app/help', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
+  await page.waitForTimeout(3000);
+  await page.addStyleTag({ content: '.bp3-portal .bp3-toast-container{display:none!important}' });
+  await page.evaluate(async (code) => {
+    // the look through the graph for files takes a while on a big graph: here, 700 ms
+    const d = window.roamAlphaAPI.data, q = d.async.q.bind(d.async);
+    window.__slowScan = true;
+    d.async.q = async (query, ...a) => { if (window.__slowScan && String(query).includes('firebasestorage')) await new Promise((r) => setTimeout(r, 700)); return q(query, ...a); };
+    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    window.__ext = (await import(url)).default;
+    window.__ext.onload({ extensionAPI: {} });
+    await window.roamAlphaAPI.ui.leftSidebar.open();
+  }, code);
+  const left = () => page.evaluate(() => !document.querySelector('.rfm-view, .rfm-loader, [inert]'));
+
+  // away before the files have even been found
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-view');
+  await page.click('.rm-left-sidebar__daily-notes');
+  await page.waitForTimeout(2500);
+  check('leaving before the files are found fetches nothing afterwards', (await left()) && fetches.length === 0 && errors.length === 0, `${fetches.length} requests, ${errors.join(' | ')}`);
+
+  // away in the middle of the sizes
+  await page.evaluate(() => { window.__slowScan = false; });
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForFunction(() => parseInt(document.querySelector('.rfm-loader .bp3-progress-meter')?.style.width ?? '0', 10) >= 25, null, { timeout: 30000 });
+  const files = await page.evaluate(() => Math.round(document.querySelector('.rfm-scroller').firstElementChild.offsetHeight / 39));
+  await page.click('.rm-left-sidebar__daily-notes');
+  await page.waitForTimeout(400);
+  const atLeave = fetches.length;
+  await page.waitForTimeout(2000);
+  check('leaving while sizes load stops the requests and leaves nothing behind', (await left()) && fetches.length === atLeave && atLeave > 50 && atLeave < files && errors.length === 0,
+    `${atLeave} of ${files} files asked for, ${fetches.length - atLeave} more after leaving, ${errors.join(' | ')}`);
+
+  // back again: only what is still missing is fetched, and the list opens up when it is in
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-view .rfm-loader', { timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector('.rfm-view .rfm-loader'), null, { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const again = fetches.length - atLeave, twice = fetches.length - new Set(fetches).size;
+  check('coming back fetches only what was still missing, then the list can be used',
+    (await page.evaluate(() => { const v = document.querySelector('.rfm-view'); return !!v && !v.querySelector('.rfm-loader, [inert]') && !v.classList.contains('rfm-loading'); }))
+    && again > 0 && fetches.length <= files + 12 && twice <= 12 && errors.length === 0, `${again} more requests, ${fetches.length} in all for ${files} files, ${twice} asked twice, ${errors.join(' | ')}`);
+
+  // and after a restart of Roam nothing is fetched again: what had arrived before leaving was kept
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.roamAlphaAPI && document.querySelector('.rm-title-display, .roam-log-container'), null, { timeout: 90000 });
+  await page.waitForTimeout(3000);
+  await page.evaluate(async (code) => {
+    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    window.__ext = (await import(url)).default;
+    window.__ext.onload({ extensionAPI: {} });
+    await window.roamAlphaAPI.ui.leftSidebar.open();
+  }, code);
+  const before = fetches.length;
+  await page.click('.rm-left-sidebar__files');
+  await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header)');
+  await page.waitForTimeout(2500);
+  check('after a restart almost nothing is fetched again', fetches.length - before <= 12 && !(await page.evaluate(() => !!document.querySelector('.rfm-loader'))), `${fetches.length - before} requests`);
+}
+
 await browser.close();
 const failed = checks.filter((c) => !c.ok);
 console.log(failed.length ? `${failed.length} of ${checks.length} checks FAILED` : `all ${checks.length} checks passed`);

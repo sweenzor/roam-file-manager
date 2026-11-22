@@ -125,9 +125,10 @@ export class App {
       }
     }));
     window.clearTimeout(late);
+    // the list was left before the end: what has arrived is kept, the rest is fetched next time
+    await flush(true);
     if (ctl.signal.aborted) return;
     this.view?.progress(null);
-    await flush(true);
     if (gone.length) {
       await forget(graphName(), gone).catch(() => {});
       this.rows = this.rows.filter((r) => !gone.includes(r.key));
@@ -147,7 +148,9 @@ export class App {
     }, state);
     host.append(this.view.el);
     if (this.rows.length) this.view.setRows(this.rows);
-    this.scan().then(() => { this.view?.setRows(this.rows); return this.fillMeta(); }).catch((e) => console.warn('[roam-file-manager]', e));
+    // the list may be left before the graph has been read (a click on Files by accident): then nothing is fetched
+    const view = this.view;
+    this.scan().then(() => { if (this.view !== view) return; view.setRows(this.rows); return this.fillMeta(); }).catch((e) => console.warn('[roam-file-manager]', e));
   }
 
   get mounted() { return !!this.view; }
