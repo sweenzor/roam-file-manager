@@ -1,7 +1,7 @@
 # Finds out whether a local graph can be made by going straight to #/offline/<name>, in a browser and in
 # Roam's desktop app, and whether Files works in it. See test/real-roam/local-graph.mjs.
-# Run by hand. Commits what it found (RESULTS.md, pictures) to
-# local-graph-out/ on the branch.
+# Runs on a push that changes the script or this file, or by hand. On a branch other than main it commits
+# what it found (RESULTS.md, pictures) to local-graph-out/ on that branch.
 name: Local graph
 
 on:
