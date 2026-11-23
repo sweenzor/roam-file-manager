@@ -21,6 +21,7 @@ import {
   roam, log, sleep, evalIn, serve, stopServing, launchRoam, killRoam, waitFor, shot, signIn, openGraph,
   dismissDialogs, loadDevExtension, extensionLoaded,
 } from './roam.mjs';
+import { checkPlan } from './plan.mjs';
 
 const EMAIL = process.env.ROAM_EMAIL, PASSWORD = process.env.ROAM_PASSWORD;
 delete process.env.ROAM_EMAIL; delete process.env.ROAM_PASSWORD;
@@ -102,6 +103,7 @@ try {
   serve(DIST);
   await launchRoam();
   await signIn(EMAIL, PASSWORD);
+  { const plan = await checkPlan(roam.page, new URL('../test-account-plan.test.ts', import.meta.url), GRAPH.startsWith('offline/') ? `#/${GRAPH}` : `#/app/${GRAPH}`); check("The test account's plan is Believer, ends more than a year away, on the date the unit test pins", plan.ok, plan.detail); }
   await openGraph(GRAPH);
   await loadDevExtension();
   check('loads through Roam Depot developer mode', await extensionLoaded());
