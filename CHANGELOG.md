@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Local graphs: Files lists, shows and deletes the files Roam's desktop app keeps on your computer for a local graph, the way Roam's Settings > Attachments does. Every file no block mentions is found, not only the ones File Manager has seen in a block.
-
 ## 0.1.0
 
 - Files in the left sidebar: every file uploaded to the graph, with type, size, mentions and date added.
@@ -13,3 +9,4 @@
 - Videos show a frame of the video as their picture. Hover over a picture to see it larger, or over a video to play it.
 - Delete files, with Roam's confirmation showing each file's picture, mentions and size. Deleting a file that blocks still mention warns that it leaves broken images and can't be undone.
 - Thumbnail view: a button next to the filter shows the files as pictures in place of the list. Videos play in their tile, with the player's controls once the pointer is on them.
+- Local graphs: Files lists, shows and deletes the files Roam's desktop app keeps on your computer for a local graph, the way Roam's Settings > Attachments does. Every file no block mentions is found, not only the ones File Manager has seen in a block.
