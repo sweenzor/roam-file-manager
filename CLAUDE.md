@@ -26,6 +26,7 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 
 - `src/files.ts`: pure functions. Finds Roam-hosted file URLs in block text, groups them by storage path, sorting, size format.
 - `src/scan.ts`: finds the blocks whose text has a firebasestorage URL. Which blocks: one datalog query for their uids, the only step that reads every block's text. The blocks themselves: `pull_many`, 100 at a time with a pause between.
+- `src/local.ts`, `src/transit.ts`: a local graph's files through Roam's desktop app (list, delete), Transit as Roam's page speaks it.
 - `src/store.ts`: IndexedDB `roam-file-manager`: `meta` (size, upload time, original name from Firebase Storage metadata) and `seen` (files found in blocks, per graph).
 - `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan.
 - `src/view.ts`: the table. `videoStill(row, cls)` / `videoStillUrl(row)` give a video's still (first frame, decoded once, kept in IndexedDB; the icon when this browser has no decoder, e.g. HEVC on Linux): use them wherever a video needs a picture. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows. `state.grid` draws the same rows as tiles (thumbnail view): same selection and virtual drawing, several files to a line. A video's tile is its still alone until the pointer is on it or it is clicked; then it gets the browser's controls and plays in place (an idle `<video controls>` gets a loading circle drawn over it for good in Roam's desktop app). Tiles have no columns, so the header row is hidden and the toolbar carries a select-all box by the trash and one sort button beside the search. That button and its menu copy Roam's own card grid, the extension browser in Settings > Roam Depot (measured signed in, 2026-11-22): `button.bp3-button.bp3-icon-standard.bp3-minimal.bp3-icon-sort` right after the search input, opening `ul.bp3-menu` with two items per field ("Downloads (high to low)", "Created (newest first)", "Alphabetical (A to Z)"), `li.bp3-menu-divider` between fields, the one in use `bp3-active bp3-intent-primary`.
@@ -37,6 +38,13 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 - The URL without its query string returns JSON metadata (size, timeCreated, `metadata.file-name`), no sign-in needed.
 - Listing a graph's folder is denied (403), so unused files can only be found by remembering files seen in blocks.
 - `roamAlphaAPI.file.upload` returns markdown, not a bare URL. `file.delete({ url })` needs the bare URL.
+
+## Local graphs (measured, Roam desktop 0.0.42, 2026-11-23)
+
+- An upload to a local graph (`#/offline/<name>`, writable on a paid account) is written as `local-asset://<graph>/<10-char id>.<ext>` (images `![](…)`, pdf/audio/video `{{[[pdf]]: …}}`, other files the bare address: no original name is kept anywhere). The desktop app stores it in `~/.config/Roam Research/local-graph-uploads/<graph>/uploads/` and serves it at `http://127.0.0.1:<server-port, 3333>/local-asset/<graph>/<file>` with CORS `*` (no Content-Length); Roam's blocks draw from there, canvas reads of pictures and video frames work.
+- `roamAlphaAPI.file.delete` throws "delete-file is not available for offline graphs"; `file.get` asserts. Roam's own Settings > Attachments lists and deletes through the desktop app's main process: `window.postMessage({msgType: 'roam-electron-renderer-message-to-main', dataInTransit: <transit>})`, answered by a `roam-electron-main-message-to-renderer` message. `src/local.ts` asks the same two things (`:roam.files/graph-files` for `{:relemma/graph-name g}`: name, size, upload-t, mime-type, download-url; mutation `roam.electron/delete-graph-file` with the file id: `{:roam.files/deleted true|false}`). Recorded answers in `test/transit.test.ts`.
+- In the browser, `file.upload` in a local graph throws: only the desktop app has local files. `src/scan.ts` looks for both address kinds in a local graph, only firebasestorage in a hosted one.
+- `test/real-roam/local.mjs` (second step of Real Roam) makes a new local graph on the runner each run.
 
 ## Reading a large graph (measured in the help graph: 13,495 blocks, 541 with a file)
 

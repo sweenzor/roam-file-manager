@@ -2,7 +2,10 @@
 // and writes its download URL into the block that holds it, in one of a few forms:
 //   ![](url)  {{[[pdf]]: url}}  {{pdf: url}}  {{[[video]]: url}}  {{[[audio]]: url}}  [name](url)
 // A file is keyed by its storage path (imgs/app/<graph>/<id>.<ext>), so the same upload pasted with
-// another token or in another form counts once. Pure functions, no DOM, so they run under node --test.
+// another token or in another form counts once.
+// In a local graph, Roam's desktop app keeps an upload on the computer instead and writes
+// local-asset://<graph>/<id>.<ext> into the block; such a file is keyed local-asset/<graph>/<id>.<ext>.
+// Pure functions, no DOM, so they run under node --test.
 
 export type Kind = 'image' | 'pdf' | 'audio' | 'video' | 'other';
 
@@ -17,7 +20,7 @@ export interface Use {
 }
 
 export interface FileEntry {
-  key: string;          // storage path, e.g. imgs/app/my-graph/AbC123xyZ_.png
+  key: string;          // storage path, e.g. imgs/app/my-graph/AbC123xyZ_.png, or local-asset/my-graph/AbC123xyZ_.png
   url: string;          // a download URL as written in the graph
   name: string;         // the label it was uploaded with, else the stored file name
   ext: string;          // lower case, no dot
@@ -26,7 +29,12 @@ export interface FileEntry {
   uses: Use[];          // newest first
 }
 
-const URL_RE = /https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/\s]+\/o\/[^\s)}\]"'<>`]+/g;
+const URL_RE = /https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/\s]+\/o\/[^\s)}\]"'<>`]+|local-asset:\/\/[^/\s)}\]"'<>`]+\/[^\s)}\]"'<>`]+/g;
+
+/** What a block holds when it has an upload in it: the part of the address every upload of that kind has. */
+export const NEEDLES = { hosted: 'firebasestorage.googleapis.com', local: 'local-asset://' } as const;
+export const LOCAL_SCHEME = 'local-asset://';
+export const isLocal = (url: string) => url.startsWith(LOCAL_SCHEME);
 
 /** Every Roam-hosted file URL in a block string, with the label of a [label](url) link. */
 export function findRefs(text: string): Ref[] {
@@ -48,8 +56,10 @@ export function findRefs(text: string): Ref[] {
   return out;
 }
 
-/** The storage path of a download URL, decoded (imgs/app/graph/id.ext), or null. */
+/** The storage path of a download URL, decoded (imgs/app/graph/id.ext), or null. A local graph's
+ *  file: local-asset/graph/id.ext. */
 export function storageKey(url: string): string | null {
+  if (isLocal(url)) { const p = url.slice(LOCAL_SCHEME.length).replace(/[?#].*$/, ''); return p.includes('/') ? `local-asset/${p}` : null; }
   const m = url.match(/\/o\/([^?#]+)/);
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch { return m[1]; }
@@ -72,6 +82,15 @@ for (const e of ['mp4', 'mov', 'webm', 'm4v', 'mkv', 'avi', 'ogv']) KINDS[e] = '
 KINDS.pdf = 'pdf';
 
 export const kindOf = (ext: string): Kind => KINDS[ext] ?? 'other';
+
+/** The address a picture or video is drawn from. Roam's desktop app serves a local graph's files at
+ *  http://127.0.0.1:<port>/local-asset/<graph>/<file>, the port being Roam's server-port (3333 unless
+ *  the address says otherwise), and Roam's own blocks draw them from there. */
+export const srcOf = (url: string, port: string | null = null) =>
+  isLocal(url) ? `http://127.0.0.1:${port || '3333'}/local-asset/${url.slice(LOCAL_SCHEME.length)}` : url;
+
+/** A local graph's upload id: the stored file name without its extension. */
+export const localId = (key: string) => storedName(key).replace(/\.[^.]*$/, '');
 
 /** The file name Roam stored: the last path segment. Roam prefixes a random 10-character id. */
 export const storedName = (key: string) => key.slice(key.lastIndexOf('/') + 1);

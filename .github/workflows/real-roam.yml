@@ -1,6 +1,7 @@
 # Runs the extension in Roam's real desktop app (Linux build, under Xvfb), signed in to a hosted test
 # graph: uploads test files, checks they are listed, found as unused and deleted only on confirmation.
-# See test/real-roam/run.mjs.
+# Then the same in a new local graph, whose files Roam's desktop app keeps on the computer.
+# See test/real-roam/run.mjs and test/real-roam/local.mjs.
 #
 # Needs two repository secrets (Settings > Secrets and variables > Actions): ROAM_EMAIL and
 # ROAM_PASSWORD, for a Roam account that can open the test graph. Optional repository variable
@@ -89,9 +90,20 @@ jobs:
           export DISPLAY=:99
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" node test/real-roam/run.mjs
 
+      # A new local graph of the same account: its files are on the runner, through Roam's desktop app
+      - name: Run the extension in a local graph
+        if: always() && steps.creds.outputs.ok == 'true'
+        env:
+          ROAM_EMAIL: ${{ secrets.ROAM_EMAIL }}
+          ROAM_PASSWORD: ${{ secrets.ROAM_PASSWORD }}
+        run: |
+          export DISPLAY=:99
+          pgrep -x Xvfb >/dev/null || { Xvfb :99 -screen 0 1440x900x24 >/dev/null 2>&1 & sleep 1; }
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node test/real-roam/local.mjs
+
       - name: Summary
         if: always() && steps.creds.outputs.ok == 'true'
-        run: '[ -f "$OUT/RESULTS.md" ] && cat "$OUT/RESULTS.md" >> "$GITHUB_STEP_SUMMARY" || true'
+        run: 'for f in "$OUT/RESULTS.md" "$OUT/local/RESULTS.md"; do [ -f "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY"; done; true'
 
       - uses: actions/upload-artifact@v4
         if: always() && steps.creds.outputs.ok == 'true'

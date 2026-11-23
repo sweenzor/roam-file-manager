@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Local graphs: Files lists, shows and deletes the files Roam's desktop app keeps on your computer for a local graph, the way Roam's Settings > Attachments does. Every file no block mentions is found, not only the ones File Manager has seen in a block.
+
 ## 0.1.0
 
 - Files in the left sidebar: every file uploaded to the graph, with type, size, mentions and date added.

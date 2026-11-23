@@ -4,7 +4,11 @@
 // with thousands of files scrolls as fast as one with ten.
 import { h, icon } from './dom.ts';
 import { getStill, putStill } from './store.ts';
-import { countText, compare, formatSize, inUseWarning, isEncrypted, type Kind, type Row, type SortKey } from './files.ts';
+import { countText, compare, formatSize, inUseWarning, isEncrypted, srcOf, type Kind, type Row, type SortKey } from './files.ts';
+
+/** The address a file is drawn from: its own, or for a local graph's file, where Roam's desktop app serves it
+ *  (on Roam's server port, which the address of Roam's window names when it isn't the usual one). */
+export const srcOfRow = (r: Row | { url: string }) => srcOf(r.url, new URLSearchParams(location.search).get('server-port'));
 
 export const ROW_H = 39;
 /** Below this width (the right sidebar open on a small window) the columns close up, so that names keep their room. */
@@ -166,7 +170,7 @@ export function videoStillUrl(r: Row, wanted: () => boolean = () => true): Promi
         try {
           // rows scroll away: a video nobody is looking at any more isn't fetched
           if (!(stillsWanted.get(r.key) ?? []).some((w) => w())) return undefined;
-          const s = await decodeStill(r.url);
+          const s = await decodeStill(srcOfRow(r));
           stills.set(r.key, s);
           if (s) putStill(r.key, s).catch(() => {});
           return s;
@@ -422,7 +426,7 @@ export class FilesView {
     // a file stored under another graph can't be deleted from here, so it can't be ticked
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const thumb = r.kind === 'image' && r.size != null && r.size <= THUMB_MAX && !isEncrypted(r.key)
-      ? h('img', { class: 'rfm-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
+      ? h('img', { class: 'rfm-thumb', src: srcOfRow(r), loading: 'lazy', decoding: 'async', alt: '' })
       : r.kind === 'video' ? videoStill(r, 'rfm-thumb-icon')
       : h('span', { class: 'rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     if (previewable(r)) this.previewOn(thumb, r);
@@ -444,11 +448,11 @@ export class FilesView {
   private tileEl(r: Row): HTMLDivElement {
     const cb = h('input', { type: 'checkbox', checked: this.selected.has(r.key), disabled: !r.own, onChange: () => { cb.checked ? this.selected.add(r.key) : this.selected.delete(r.key); this.updateHeader(); } });
     const open = !isEncrypted(r.key) && r.size != null && r.size <= GRID_THUMB_MAX;
-    const pic = r.kind === 'image' && open ? h('img', { src: r.url, loading: 'lazy', decoding: 'async', alt: '' })
+    const pic = r.kind === 'image' && open ? h('img', { src: srcOfRow(r), loading: 'lazy', decoding: 'async', alt: '' })
       // a video plays in its tile with the browser's own controls; nothing of it is fetched until then. The
       // controls come when the pointer does (or with a click): at rest Roam's desktop app draws the player's
       // loading circle over the still for good, so a tile at rest is the still alone
-      : r.kind === 'video' && previewable(r) ? h('video', { src: r.url, preload: 'none', playsinline: true })
+      : r.kind === 'video' && previewable(r) ? h('video', { src: srcOfRow(r), preload: 'none', playsinline: true })
       : icon(KIND_ICON[r.kind]);
     // its picture is the shared still (videoStillUrl); a video this browser has no decoder for keeps the icon and gets no player
     if (pic instanceof HTMLVideoElement) videoStillUrl(r, () => pic.isConnected).then((s) => {
@@ -559,8 +563,8 @@ export class FilesView {
     };
     // a video starts by itself without sound; its controls turn the sound on
     const media = video
-      ? h('video', { class: 'rfm-preview-img rfm-preview-video', src: r.url, autoplay: true, loop: true, playsinline: true, controls: true })
-      : h('img', { class: 'rfm-preview-img', src: r.url, alt: '' });
+      ? h('video', { class: 'rfm-preview-img rfm-preview-video', src: srcOfRow(r), autoplay: true, loop: true, playsinline: true, controls: true })
+      : h('img', { class: 'rfm-preview-img', src: srcOfRow(r), alt: '' });
     if (media instanceof HTMLVideoElement) media.muted = true;
     media.addEventListener(video ? 'loadeddata' : 'load', () => {
       if (media instanceof HTMLVideoElement && !media.videoWidth) { if (this.preview?.contains(media)) this.hidePreview(); return; }
@@ -614,7 +618,7 @@ export class FilesView {
     const iconEl = () => h('span', { class: 'rfm-delete-thumb rfm-thumb-icon' }, icon(KIND_ICON[r.kind]));
     let el: HTMLElement;
     if (isEncrypted(r.key)) el = iconEl();
-    else if (r.kind === 'image' && (r.size ?? Infinity) <= DIALOG_THUMB_MAX) el = h('img', { class: 'rfm-delete-thumb', src: r.url, loading: 'lazy', decoding: 'async', alt: '' });
+    else if (r.kind === 'image' && (r.size ?? Infinity) <= DIALOG_THUMB_MAX) el = h('img', { class: 'rfm-delete-thumb', src: srcOfRow(r), loading: 'lazy', decoding: 'async', alt: '' });
     else if (r.kind === 'video') el = videoStill(r, 'rfm-delete-thumb rfm-thumb-icon');
     else el = iconEl();
     if (previewable(r)) this.previewOn(el, r);

@@ -91,7 +91,7 @@ const makeDemoInPage = async (PAGES) => {
   const md = {};
   for (const [name, file] of Object.entries(files)) {
     const text = await api.file.upload({ file, toast: { hide: true } });
-    const url = text.match(/https:\/\/firebasestorage[^\s)}]+/)[0];
+    const url = text.match(/(https:\/\/firebasestorage|local-asset:\/\/)[^\s)}]+/)[0];
     out.urls[name] = url; out.sizes[name] = file.size;
     md[name] = text.includes(url) && /^(!\[|\{\{|\[)/.test(text.trim()) ? text.trim() : `[${name}](${url})`;
   }
@@ -324,6 +324,33 @@ async function main() {
   if (!stored.every((s) => s === 200)) throw new Error(`a demo file went missing while the pictures were taken: ${stored.join(' ')}`);
 }
 
+/** 10. A local graph: Roam's desktop app keeps its files on the computer, and Files lists them the same way.
+ *  A new local graph, made by its address; it lives only on this runner. */
+const LOCAL_GRAPH = 'kitchen-renovation';
+async function local() {
+  await roam.page.goto(`${roam.page.url().split('#')[0]}#/offline/${LOCAL_GRAPH}`);
+  await sleep(1000);
+  const open = () => evalIn(() => window.roamAlphaAPI?.graph?.type === 'offline' && !!document.querySelector('.roam-main .roam-article, .roam-main .roam-log-container'));
+  if (!(await open().catch(() => false))) await roam.page.reload().catch(() => {});
+  await waitFor('the local graph', open, 90000);
+  await dismissDialogs();
+  await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.open());
+  await waitFor('the extension in the local graph', extensionLoaded, 30000);
+  const made = await makeDemo();
+  if (!Object.values(made.urls).every((u) => u.startsWith('local-asset://'))) throw new Error('the local graph\'s uploads are not local-asset:// files');
+  for (const name of UNUSED) for (const uid of made.blocks[name]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
+  await evalIn(async (title) => { const api = window.roamAlphaAPI; const uid = api.data.q('[:find ?u . :in $ ?t :where [?p :node/title ?t] [?p :block/uid ?u]]', title); if (uid) await api.data.page.delete({ page: { uid } }); }, UNUSED_PAGE);
+  await sleep(1500);
+  // Roam's own banner about backing up local graphs, closed as a user would
+  await evalIn(() => document.querySelectorAll('.bp3-toast .bp3-icon-cross, .bp3-toast button[aria-label="Close"]').forEach((b) => (b.closest('button') ?? b).click()));
+  await openFiles();
+  await waitFor('every demo file in the list, with sizes', async () => { const list = await rows(); return list.length === made.names.length && list.every((r) => r.size); }, 30000);
+  await waitFor('the pictures in the list', () => picturesLoaded(VIEW), 30000);
+  await waitFor('the video\'s still', () => evalIn((v) => !!document.querySelector(`${v} .rfm-still img`), VIEW), 30000);
+  await parkMouse();
+  await snap('local', await downTo());
+}
+
 let failure = '';
 try { await main(); } catch (e) { failure = e.message.split('\n')[0]; log('ERROR', e.stack ?? e.message); if (roam.page && roam.signedIn && cdp) await snap('debug-error').catch(() => {}); }
 // leave the test graph as it was: no demo pages, no demo files
@@ -345,6 +372,7 @@ try {
     await sleep(1500);
   }
 } catch (e) { log('cleanup failed', e.message.split('\n')[0]); }
+if (!failure) try { await local(); } catch (e) { failure = `local graph: ${e.message.split('\n')[0]}`; log('ERROR', e.stack ?? e.message); if (roam.page && roam.signedIn && cdp) await snap('debug-error-local').catch(() => {}); }
 await killRoam('SIGTERM').catch(() => {});
 stopServing();
 log(failure ? `FAILED: ${failure}` : 'DONE', '->', OUT);
