@@ -77,7 +77,7 @@ const tick = (name) => evalIn(([v, name]) => {
 }, [VIEW, name]);
 const trashOff = () => evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).disabled, VIEW);
 const setSwitch = async (label, on) => {
-  if (!(await evalIn(() => !!document.querySelector('.bp3-popover .bp3-switch')))) await roam.page.click(`${VIEW} .bp3-icon-filter`);
+  if (!(await evalIn(() => !!document.querySelector('.bp3-popover .bp3-switch')))) await evalIn((v) => document.querySelector(`${v} .bp3-icon-filter`).click(), VIEW);
   await sleep(300);
   await evalIn(([label, on]) => { const i = [...document.querySelectorAll('.bp3-popover label')].find((e) => e.textContent.trim() === label).querySelector('input'); if (i.checked !== on) i.click(); }, [label, on]);
   await sleep(300);
@@ -102,6 +102,9 @@ try {
   await waitFor('the local graph', graphOpen, 90000);
   roam.signedIn = true;
   await dismissDialogs();
+  // Roam's banner about backing up local graphs sits over the top of the window: closed as a user would
+  const closeBanner = () => evalIn(() => document.querySelectorAll('.bp3-toast .bp3-icon-cross').forEach((b) => (b.closest('button') ?? b).click()));
+  await sleep(2000); await closeBanner();
   check('a new local graph opens by its address', await evalIn(() => window.roamAlphaAPI.graph.type === 'offline'));
   await loadDevExtension();
   check('loads through Roam Depot developer mode in a local graph', await extensionLoaded());
@@ -146,6 +149,7 @@ try {
   check('Roam\'s desktop app serves them', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
 
   // ---- they are listed ----
+  await closeBanner();
   await openAllFiles();
   await waitFor('the three files in the list, with sizes', async () => { const r = await rows(); return r.length >= 3 && r.every((x) => x.size); }, 30000).catch(() => {});
   let list = await rows();
@@ -170,11 +174,11 @@ try {
   await shot('local-files');
   await evalIn(async (uids) => { const s = window.roamAlphaAPI.ui.rightSidebar; for (const uid of uids) await s.removeWindow({ window: { type: 'block', 'block-uid': uid } }); await s.close(); }, mine);
   await sleep(800);
-  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await evalIn((v) => document.querySelector(`${v} .rfm-grid-button`).click(), VIEW);
   await waitFor('a picture in a tile', () => evalIn(() => [...document.querySelectorAll('.rfm-view .rfm-tile img')].some((i) => i.complete && i.naturalWidth > 0)), 15000).then(
     () => check('a tile shows the uploaded picture', true), () => check('a tile shows the uploaded picture', false));
   await shot('local-thumbnails');
-  await roam.page.click(`${VIEW} .rfm-grid-button`);
+  await evalIn((v) => document.querySelector(`${v} .rfm-grid-button`).click(), VIEW);
   await sleep(500);
 
   // ---- a file whose block is deleted is unused at once ----
@@ -192,14 +196,14 @@ try {
   // ---- delete: only after the confirmation ----
   await tick(nameOf(urls.dropped));
   check('trash is on for an unused file', !(await trashOff()));
-  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
   await waitFor('the confirmation', dialogOpen, 5000);
   await waitFor('the picture in the confirmation', () => evalIn(() => { const i = document.querySelector('.confirmation-content-dialog img.rfm-delete-thumb'); return !!i && i.complete && i.naturalWidth > 0; }), 15000).then(
     () => check('the confirmation shows the picture', true), () => check('the confirmation shows the picture', false));
   await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
   await sleep(1500);
   check('Cancel deletes nothing', (await stored(urls.dropped)) === 200 && !!(await rowOf(nameOf(urls.dropped))));
-  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
   await waitFor('the confirmation', dialogOpen, 5000);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
   await waitFor('the deleted file to leave the list', async () => !(await rowOf(nameOf(urls.dropped))), 30000).catch(() => {});
@@ -211,7 +215,7 @@ try {
 
   // ---- deleting a file that a block still holds ----
   await tick(DOC);
-  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
   await waitFor('the confirmation', dialogOpen, 5000);
   const warn = await warningText();
   check('warns about the block it leaves with a broken link', warn.includes('This file is still referenced in 1 block, which will be left with a broken link.'), warn);
