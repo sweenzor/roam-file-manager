@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import {
   roam, log, sleep, evalIn, serve, stopServing, launchRoam, killRoam, waitFor, signIn,
-  dismissDialogs, loadDevExtension, extensionLoaded,
+  dismissDialogs, loadDevExtension, extensionLoaded, openSettings,
 } from './roam.mjs';
 
 const EMAIL = process.env.ROAM_EMAIL, PASSWORD = process.env.ROAM_PASSWORD;
@@ -94,6 +94,20 @@ try {
   await roam.page.goto(`${base()}#/app`); await sleep(5000);
   note('graph list', await screen());
   note('graph list hints', await hints());
+  // what the account's plan looks like from here. Digits are blanked and nothing with an @ is kept: the log is public.
+  const planWords = () => evalIn(() => [...new Set([...document.querySelectorAll('body *')].filter((e) => e.children.length === 0 && /believer|\bpro\b|plan\b|subscri|expir|renew|billing|trial|valid|until|member/i.test(e.textContent) && e.textContent.trim().length < 200 && !/@/.test(e.textContent)).map((e) => e.textContent.trim().replace(/\d/g, '#')))].slice(0, 25).join(' | '));
+  note('graph list: plan words', await planWords());
+  await attempt('account menu', async () => {
+    const who = roam.page.locator('text=/@/').first();
+    const box = await who.boundingBox();
+    await who.click({ timeout: 5000 }).catch(() => {});
+    await sleep(800);
+    let items = await evalIn(() => [...document.querySelectorAll('.bp3-popover *, .bp3-menu *')].filter((e) => e.children.length === 0 && e.textContent.trim() && !/@/.test(e.textContent)).map((e) => e.textContent.trim().replace(/\d/g, '#')).slice(0, 20).join(' | '));
+    if (!items && box) { await roam.page.mouse.click(box.x + box.width + 28, box.y + box.height / 2); await sleep(800); items = await evalIn(() => [...document.querySelectorAll('.bp3-popover *, .bp3-menu *')].filter((e) => e.children.length === 0 && e.textContent.trim() && !/@/.test(e.textContent)).map((e) => e.textContent.trim().replace(/\d/g, '#')).slice(0, 20).join(' | ')); }
+    const words = await planWords();
+    await roam.page.keyboard.press('Escape');
+    return `menu: ${items || 'none'} ;; plan words with it open: ${words}`;
+  });
   note('graph list names our graph (before)', await evalIn((g) => document.body.innerText.includes(g), GRAPH));
 
   // ---- the address ----
@@ -155,6 +169,20 @@ try {
   });
   note('hints after writing', await hints());
   await pic('written');
+
+  await attempt('Settings: what it says about the plan', async () => {
+    await openSettings();
+    await sleep(1000);
+    const tabs = await evalIn(() => [...document.querySelectorAll('.bp3-dialog .bp3-tab, .bp3-dialog [role="tab"]')].map((e) => e.textContent.trim()).join('/'));
+    const seen = [];
+    for (const t of tabs.split('/').filter((t) => /user|account|billing|subscri|plan|member|graph/i.test(t))) {
+      await evalIn((t) => [...document.querySelectorAll('.bp3-dialog .bp3-tab, .bp3-dialog [role="tab"]')].find((e) => e.textContent.trim() === t)?.click(), t);
+      await sleep(1200);
+      seen.push(`[${t}] ${await evalIn(() => [...new Set([...document.querySelectorAll('.bp3-dialog *')].filter((e) => e.children.length === 0 && /believer|\bpro\b|plan\b|subscri|expir|renew|billing|trial|valid|until|member/i.test(e.textContent) && e.textContent.trim().length < 200 && !/@/.test(e.textContent)).map((e) => e.textContent.trim().replace(/\d/g, '#')))].slice(0, 12).join(' | '))}`);
+    }
+    await within(15000, dismissDialogs()).catch(() => {});
+    return `tabs: ${tabs} ;; ${seen.join(' ;; ')}`;
+  });
 
   // ---- Files in a local graph ----
   if (PART === 'desktop') await attempt('developer extension loads', async () => { await loadDevExtension(); return extensionLoaded(); });
