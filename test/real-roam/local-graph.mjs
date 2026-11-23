@@ -184,6 +184,26 @@ try {
     return `tabs: ${tabs} ;; ${seen.join(' ;; ')}`;
   });
 
+  // Billing: what the account's own billing page says about the plan and its end. Only lines about the
+  // plan and dates are kept; nothing with an @ and no long numbers (card details). No picture of it.
+  await attempt('Billing page', async () => {
+    await openSettings(); await sleep(800);
+    await evalIn(() => [...document.querySelectorAll('.bp3-dialog .bp3-tab, .bp3-dialog [role="tab"]')].find((e) => e.textContent.trim() === 'Account')?.click());
+    await sleep(1000);
+    const ctx = roam.page.context();
+    const popup = ctx.waitForEvent('page', { timeout: 20000 }).catch(() => null);
+    const before = roam.page.url();
+    await evalIn(() => [...document.querySelectorAll('.bp3-dialog button, .bp3-dialog a, .bp3-dialog .bp3-button')].find((e) => /open billing/i.test(e.textContent))?.click());
+    const p = (await popup) ?? roam.page;
+    await sleep(12000);
+    const where = new URL(p.url()).host;
+    const lines = (await p.evaluate(() => document.body.innerText).catch(() => '')).split('\n').map((l) => l.trim())
+      .filter((l) => l && l.length < 160 && !/@/.test(l) && !/\d{5,}/.test(l) && /believer|\bpro\b|plan|subscri|expir|renew|cancel|until|period|year|month|next|invoice|\$\d|20\d\d/i.test(l));
+    if (p !== roam.page) await p.close().catch(() => {}); else if (roam.page.url() !== before) await roam.page.goto(before).catch(() => {});
+    await within(15000, dismissDialogs()).catch(() => {});
+    return `opened ${where}: ${[...new Set(lines)].slice(0, 25).join(' | ')}`;
+  }, 60000);
+
   // ---- Files in a local graph ----
   if (PART === 'desktop') await attempt('developer extension loads', async () => { await loadDevExtension(); return extensionLoaded(); });
   if (PART === 'desktop' && !(await extensionLoaded().catch(() => false))) {
