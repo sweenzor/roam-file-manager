@@ -4,7 +4,7 @@
 
 See, sort and clean up the files uploaded to your Roam graph.
 
-![The Files list in Roam: twelve uploaded files with their type, size, mentions and the date they were added](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/files.png)
+![The Files list in Roam: twelve uploaded files with their type, size, mentions and the date they were added](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/files.png)
 
 </div>
 
@@ -24,7 +24,7 @@ The first time the list opens it fetches each file's size, upload date and name 
 storage. On a graph with many files that takes a few seconds (about 75 files a second). A progress bar
 in the middle of the list shows how far it has got, and the list waits, dimmed, until every size is in.
 
-![The list just after it was opened for the first time: dimmed, with a progress bar in the middle and some sizes still to come](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/first-open.png)
+![The list just after it was opened for the first time: dimmed, with a progress bar in the middle and some sizes still to come](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/first-open.png)
 
 After that it's all kept on your device, and the list opens at once. The same bar shows for a moment when
 a sort takes a while, which only happens with tens of thousands of files.
@@ -44,28 +44,28 @@ the list it reads as shown / all, as in **5 / 12 Files**.
 
 The eye above the list hides the columns you don't need.
 
-![The Show or Hide Columns menu, with a switch for Type, Size, Mentions and Added](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/columns.png)
+![The Show or Hide Columns menu, with a switch for Type, Size, Mentions and Added](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/columns.png)
 
 ### Sort
 
 Click a column's heading or its arrows to sort by it. The list starts with the newest files first. Here
 it's sorted by **Size**, largest first, which is the quick way to see what takes up your storage.
 
-![The list sorted by size, with the largest file first](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/sort.png)
+![The list sorted by size, with the largest file first](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/sort.png)
 
 ### Search
 
 **Search Files** looks in file names, in types (type `pdf`) and in the names of the pages files are on.
 Here `paint` finds the files on the page **Paint and finishes**.
 
-![Searching for paint lists the files on the page Paint and finishes](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/search.png)
+![Searching for paint lists the files on the page Paint and finishes](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/search.png)
 
 ### Filter, and files nothing uses
 
 The filter narrows the list to **Images**, **PDFs**, **Audio**, **Video** or **Other files**. Its last
 switch, **Unused**, lists the files that no block mentions any more: they show **0** under Mentions.
 
-![The filter with Unused switched on: two files with 0 mentions](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/unused.png)
+![The filter with Unused switched on: two files with 0 mentions](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/unused.png)
 
 When you delete a block that holds an upload, Roam keeps the file in its storage. Those are the files
 **Unused** finds.
@@ -75,7 +75,7 @@ When you delete a block that holds an upload, Roam keeps the file in its storage
 The grid button above the list shows the files as thumbnails: each file's picture with its name, type,
 size and mentions. Point at a video for its player: it plays in its thumbnail. Click the button again for the list.
 
-![The files as thumbnails, with the sort button next to the search](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/thumbnails.png)
+![The files as thumbnails, with the sort button next to the search](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/thumbnails.png)
 
 Thumbnails have no column headings, so the sort button next to the search sorts them, by **Added**,
 **Size**, **Mentions**, **Type** or name.
@@ -84,11 +84,11 @@ Thumbnails have no column headings, so the sort button next to the search sorts 
 
 Hover over a picture to see it larger.
 
-![Hovering over a picture in the list shows it larger](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/preview.png)
+![Hovering over a picture in the list shows it larger](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/preview.png)
 
 Hover over a video to play it. It starts without sound, and its controls turn the sound on.
 
-![Hovering over a video in the list plays it in a small player with controls](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/video.png)
+![Hovering over a video in the list plays it in a small player with controls](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/video.png)
 
 A video's small picture in the list is a frame of the video itself.
 
@@ -97,14 +97,14 @@ A video's small picture in the list is a frame of the video itself.
 **Mentions** counts the blocks a file is in. Click the count to open those blocks in the right sidebar,
 the way All Pages opens a page's mentions. The list stays where it is.
 
-![The blocks that hold a floor plan, open in the right sidebar next to the list](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/mentions.png)
+![The blocks that hold a floor plan, open in the right sidebar next to the list](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/mentions.png)
 
 ## Deleting files
 
 Tick one or more files and press the trash. Roam asks you to confirm, and shows each file with its
 picture (for a video, a frame of it), its type and size, and its mentions.
 
-![The confirmation for two files with 0 mentions, asking whether to permanently delete 2 files](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/delete.png)
+![The confirmation for two files with 0 mentions, asking whether to permanently delete 2 files](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/delete.png)
 
 **Deleting is permanent.** The file is removed from Roam's storage and can't be brought back.
 
@@ -113,22 +113,41 @@ picture (for a video, a frame of it), its type and size, and its mentions.
 | **A file with 0 mentions** | It's in none of your blocks, so nothing in your graph changes. |
 | **A file that blocks still mention** | The file goes, and those blocks are left as they are: they'll show a broken image or a dead link. The confirmation warns you first, and you have to click the red button. **Enter** doesn't confirm. |
 
-![The confirmation for three files that blocks still mention, with a red warning that deleting cannot be undone and that the blocks will be left with broken images and links](https://raw.githubusercontent.com/sweenzor/roam-file-manager/9f33b2d3761fbb9e9f12f05d0dec7906ddcbd5b5/docs/images/delete-warning.png)
+![The confirmation for three files that blocks still mention, with a red warning that deleting cannot be undone and that the blocks will be left with broken images and links](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/delete-warning.png)
 
 In the confirmation you can hover over a picture or video to see or play it, and click a mentions count to
 look at the blocks first: the confirmation closes, nothing is deleted and your ticks stay.
+
+## Local graphs
+
+File Manager works the same way in a local graph. Roam's desktop app keeps a local graph's files on
+your computer rather than in Roam's file storage, and File Manager lists, shows and deletes them there,
+the way Roam's own **Settings > Attachments** does.
+
+![The Files list in a local graph: the same kitchen files, kept on the computer, the pictures listed by the names Roam stored them under](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/local.png)
+
+| | In a local graph |
+| --- | --- |
+| **Name** | Roam keeps a local file under the name it stored it as, not the name it was uploaded with, so that's the name listed, as in Roam's **Settings > Attachments**. |
+| **Mentions, sort, search, thumbnails, previews** | As in any graph. |
+| **0 mentions** | Roam's desktop app knows every file a local graph has, so every file no block mentions is found, including ones that lost their block before File Manager was installed. |
+| **Deleting** | The file is deleted from your computer, after the same confirmation. |
+
+Roam can only upload files to a local graph in its desktop app, and File Manager can only delete them
+there.
 
 ## Good to know
 
 <details>
 <summary><b>Which unused files it can find</b></summary>
 
-Roam doesn't let an extension list a graph's stored files. File Manager finds files by reading your
+In a hosted graph, Roam doesn't let an extension list the graph's stored files. File Manager finds files by reading your
 blocks, when Roam starts and every ten minutes after that, and remembers on your device every file it has
 seen there. A file shows 0 mentions when it was seen in a block and no block holds it any more.
 
 So a file that lost its block before File Manager was installed doesn't appear, and neither does one
-that was uploaded and removed again within a few minutes.
+that was uploaded and removed again within a few minutes. In a [local graph](#local-graphs) Roam's
+desktop app knows all of the graph's files, so every one of them is found.
 </details>
 
 <details>
@@ -161,7 +180,7 @@ recording on a computer without HEVC support) keeps the video icon.
 File sizes, upload dates, video pictures and the list of files File Manager has seen are kept on your
 device, so each computer you use builds its own. Nothing is written to your graph, and nothing is sent
 anywhere except to Roam's own file storage, to read a file's size and date and to delete the files you
-confirm.
+confirm. In a local graph it asks Roam's desktop app instead, and nothing leaves your computer.
 </details>
 
 ## Development

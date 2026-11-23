@@ -1,11 +1,16 @@
-// Reads the graph: every block whose text holds a Roam-hosted file URL, with its page.
-import { collect, findRefs, storageKey, type BlockRow, type FileEntry } from './files.ts';
+// Reads the graph: every block whose text holds an uploaded file's address, with its page.
+import { collect, findRefs, storageKey, NEEDLES, type BlockRow, type FileEntry } from './files.ts';
 
-const NEEDLE = 'firebasestorage.googleapis.com';
+/** A hosted graph's uploads are in Firebase Storage. A local graph's are on the computer
+ *  (local-asset://), and it can hold hosted ones too, pasted or imported from a hosted graph. */
+const isLocalGraph = () => (window as any).roamAlphaAPI.graph?.type === 'offline';
+const holds = (v: string) => (isLocalGraph()
+  ? `(or [(clojure.string/includes? ${v} "${NEEDLES.hosted}")] [(clojure.string/includes? ${v} "${NEEDLES.local}")])`
+  : `[(clojure.string/includes? ${v} "${NEEDLES.hosted}")]`);
 // Which blocks hold a file: the one step that has to look at every block's text.
-const FIND = `[:find [?uid ...]
+const find = () => `[:find [?uid ...]
   :where [?b :block/string ?s]
-         [(clojure.string/includes? ?s "${NEEDLE}")]
+         ${holds('?s')}
          [?b :block/uid ?uid]]`;
 const BLOCK = '[:block/uid :block/string :create/time {:block/page [:block/uid :node/title]}]';
 const CHUNK = 100;
@@ -24,6 +29,7 @@ const pause = () => new Promise<void>((r) => setTimeout(r));
  *  to answer. A list of files has to show the graph as it is now, so the window does the search. */
 export async function scanGraph(): Promise<Map<string, FileEntry>> {
   const d = (window as any).roamAlphaAPI.data;
+  const FIND = find();
   const uids: string[] = (d.async?.q ? await d.async.q(FIND) : d.q(FIND)) ?? [];
   const rows: BlockRow[] = [];
   for (let i = 0; i < uids.length; i += CHUNK) {
@@ -38,20 +44,21 @@ export async function scanGraph(): Promise<Map<string, FileEntry>> {
 }
 
 
-// Every value in the graph that holds a Roam-hosted file URL, whatever attribute it is in: block
+// Every value in the graph that holds an uploaded file's address, whatever attribute it is in: block
 // text, page titles, and anything else Roam or an extension stores (Roam keeps a PDF's URL in a
 // :url attribute, for one). Block props are left out: Roam records the size of a resized image
 // there under its URL and keeps that after the image is gone from the block, so it isn't a use.
 // Much slower than the block query, so it runs only as the last check before a delete.
-const ANYWHERE = `[:find ?s
+const anywhere = () => `[:find ?s
   :where [_ ?a ?v] [(not= ?a :block/props)]
          [(str ?v) ?s]
-         [(clojure.string/includes? ?s "firebasestorage.googleapis.com")]]`;
+         ${holds('?s')}]`;
 
 /** The storage paths of every file whose URL is anywhere in the graph. */
 export async function keysAnywhere(): Promise<Set<string>> {
   const api = (window as any).roamAlphaAPI;
   const keys = new Set((await scanGraph()).keys());
+  const ANYWHERE = anywhere();
   const rows: [string][] = api.data.async?.q ? await api.data.async.q(ANYWHERE) : api.data.q(ANYWHERE);
   for (const [text] of rows) for (const r of findRefs(text)) { const k = storageKey(r.url); if (k) keys.add(k); }
   return keys;

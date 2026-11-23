@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRefs, storageKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning, countText } from '../src/files.ts';
+import { findRefs, storageKey, srcOf, localId, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning, countText } from '../src/files.ts';
 
 const U = (id: string, g = 'g') => `https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${g}%2F${id}?alt=media&token=t-${id}`;
 
@@ -87,4 +87,27 @@ test('the count in the toolbar', () => {
   assert.equal(countText(12, 529), '12 / 529 Files');
   assert.equal(countText(0, 1), '0 / 1 File');
   assert.equal(countText(1200, 12345), '1,200 / 12,345 Files');
+});
+
+// ---------- local graphs ----------
+const L = (file: string, g = 'my-local') => `local-asset://${g}/${file}`;
+
+test('finds a local graph\'s files in every form Roam writes', () => {
+  const s = `![](${L('fWGmbK9_OS.png')}) {{[[pdf]]: ${L('Ab12345678.pdf')}}} [notes.txt](${L('Cd12345678.txt')}) {{[[video]]: ${L('Ef12345678.webm')}}}`;
+  const r = findRefs(s);
+  assert.deepEqual(r.map((x) => storageKey(x.url)), ['fWGmbK9_OS.png', 'Ab12345678.pdf', 'Cd12345678.txt', 'Ef12345678.webm'].map((f) => `local-asset/my-local/${f}`));
+  assert.deepEqual(r.map((x) => x.label), [null, null, 'notes.txt', null]);
+  assert.equal(restOf(`look ![](${L('a.png')}) here`), 'look here');
+});
+
+test('hosted and local files side by side are kept apart', () => {
+  const files = collect([{ uid: 'b', text: `![](${U('a.png')}) ![](${L('a.png')})`, time: 1, pageUid: 'p', pageTitle: 'P' }]);
+  assert.deepEqual([...files.keys()], ['imgs/app/g/a.png', 'local-asset/my-local/a.png']);
+});
+
+test('a local file is drawn from Roam\'s desktop app server', () => {
+  assert.equal(srcOf(L('x.png')), 'http://127.0.0.1:3333/local-asset/my-local/x.png');
+  assert.equal(srcOf(L('x.png'), '4444'), 'http://127.0.0.1:4444/local-asset/my-local/x.png');
+  assert.equal(srcOf(U('a.png')), U('a.png'));
+  assert.equal(localId('local-asset/my-local/fWGmbK9_OS.png'), 'fWGmbK9_OS');
 });

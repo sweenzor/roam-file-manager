@@ -76,7 +76,7 @@ jobs:
           [ -f "$deb" ] || curl -fsSL -o "$deb" "https://roam-electron-deploy.s3.us-east-2.amazonaws.com/roam-research_${ROAM_VERSION}_amd64.deb"
           echo "$(echo "$ROAM_DEB_SHA512" | base64 -d | od -An -v -tx1 | tr -d ' \n')  $deb" | sha512sum -c -
           sudo apt-get update -qq
-          sudo apt-get install -y -qq "$deb" xvfb
+          sudo apt-get install -y -qq "$deb" xvfb tesseract-ocr
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright-core@1.63.0
 
       - name: Take the screenshots in real Roam
@@ -98,6 +98,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # no picture with an email address on it is ever committed (OCR reads some icons as a lone @, so look for an address)
+          for f in docs/images/*.png; do
+            if tesseract "$f" - 2>/dev/null | grep -qE '[A-Za-z0-9._%+-]+ ?@ ?[A-Za-z0-9-]+\.[A-Za-z]{2,}'; then echo "::warning::dropped $f: it shows an email address"; git checkout -- "$f" 2>/dev/null || rm "$f"; fi
+          done
           git add docs/images
           if git diff --cached --quiet; then
             echo "No screenshots changed."
