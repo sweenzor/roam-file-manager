@@ -90,6 +90,8 @@ const makeDemoInPage = async (PAGES) => {
   const out = { urls: {}, blocks: {}, pages: [], names: Object.keys(files), sizes: {} };
   const md = {};
   for (const [name, file] of Object.entries(files)) {
+    // Roam allows 10 uploads a second, and a local graph's are that quick
+    await new Promise((r) => setTimeout(r, 150));
     const text = await api.file.upload({ file, toast: { hide: true } });
     const url = text.match(/(https:\/\/firebasestorage|local-asset:\/\/)[^\s)}]+/)[0];
     out.urls[name] = url; out.sizes[name] = file.size;
