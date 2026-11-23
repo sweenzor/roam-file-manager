@@ -56,3 +56,11 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 - The help-graph test must never confirm a delete: those are Roam's own files.
 - Waiting (Matthew, 2026-11-22): something custom for this view, not Roam's toast. A box with a progress bar in the middle of the view, the list dimmed and locked under it, while the first open fetches sizes (`FilesView.progress`), and while a sort predicted to take over 250 ms runs. No text in it.
 - Words come from Roam's All Pages: a file's uses are its Mentions. The count opens the blocks in the right sidebar and the list stays open, as All Pages does.
+
+## Test account plan
+
+Real-Roam CI signs in to a Roam test account with a Believer plan that ends on 2031-11-23 (without a plan its local graphs are read-only). `test/test-account-plan.test.ts` fails from a year before that; after renewing, put the new end date there.
+
+## Local graphs
+
+`test/real-roam/local-graph.mjs` (Local graph workflow, runs on a push that changes it) makes a local graph by going to `#/offline/<name>`, in a browser and the desktop app, writes to it, checks it survives a restart, and tries Files there. In a local graph an upload is stored as `local-asset://<graph>/<id>.<ext>`, not in Firebase Storage, so Files does not list it (measured 2026-11-23). Pictures are taken inside the graph only (Roam's graph list shows the account's email), with anything like an email covered, and the workflow drops any picture where text recognition finds an @ before committing.

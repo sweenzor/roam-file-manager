@@ -85,8 +85,9 @@ jobs:
         if: always()
         run: cat "$OUT"/*/RESULTS.md >> "$GITHUB_STEP_SUMMARY" || true
 
+      # on a working branch only, so that main never gets a run's pictures
       - name: Commit what was found
-        if: always()
+        if: always() && github.ref_name != 'main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
