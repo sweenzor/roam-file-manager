@@ -180,7 +180,7 @@ recording on a computer without HEVC support) keeps the video icon.
 File sizes, upload dates, video pictures and the list of files File Manager has seen are kept on your
 device, so each computer you use builds its own. Nothing is written to your graph, and nothing is sent
 anywhere except to Roam's own file storage, to read a file's size and date and to delete the files you
-confirm.
+confirm. In a local graph it asks Roam's desktop app instead, and nothing leaves your computer.
 </details>
 
 ## Development
