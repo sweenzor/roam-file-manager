@@ -339,6 +339,16 @@ async function local() {
   // a developer extension is loaded per graph
   await loadDevExtension();
   await dismissDialogs();
+  // a new graph opens with Roam Help showing: closed with its own close button
+  await evalIn(() => {
+    const title = [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Roam Help');
+    let box = title?.parentElement;
+    while (box && !box.querySelector('.bp3-icon-cross, .bp3-icon-small-cross')) box = box.parentElement;
+    const x = box?.querySelector('.bp3-icon-cross, .bp3-icon-small-cross');
+    (x?.closest('button') ?? x)?.click();
+  });
+  await sleep(500);
+  if (await evalIn(() => [...document.querySelectorAll('body *')].some((e) => e.children.length === 0 && e.textContent.trim() === 'Roam Help'))) throw new Error('Roam Help is still open');
   const made = await makeDemo();
   if (!Object.values(made.urls).every((u) => u.startsWith('local-asset://'))) throw new Error('the local graph\'s uploads are not local-asset:// files');
   for (const name of UNUSED) for (const uid of made.blocks[name]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
