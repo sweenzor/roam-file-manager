@@ -161,12 +161,6 @@ try {
     await sleep(1500);
     return `focus went to ${focused}; blocks with the typed text: ${await hasMark(`${MARK} typed`)}; blocks in the graph: ${await evalIn(() => window.roamAlphaAPI.data.q('[:find (count ?b) . :where [?b :block/string]]') ?? 0)}`;
   });
-  await attempt('make a page from the search box', async () => {
-    await roam.page.locator('#find-or-create-input').click({ timeout: 5000 });
-    await roam.page.keyboard.type('Local graph typed page', { delay: 25 });
-    await roam.page.keyboard.press('Enter'); await sleep(2000);
-    return `pages of that title: ${await evalIn(() => window.roamAlphaAPI.data.q('[:find (count ?p) . :where [?p :node/title "Local graph typed page"]]') ?? 0)}; hash ${await evalIn(() => location.hash)}`;
-  });
   note('hints after writing', await hints());
   await pic('written');
 
