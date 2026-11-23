@@ -334,8 +334,9 @@ async function local() {
   if (!(await open().catch(() => false))) await roam.page.reload().catch(() => {});
   await waitFor('the local graph', open, 90000);
   await dismissDialogs();
-  await evalIn(() => window.roamAlphaAPI.ui.leftSidebar.open());
-  await waitFor('the extension in the local graph', extensionLoaded, 30000);
+  // a developer extension is loaded per graph
+  await loadDevExtension();
+  await dismissDialogs();
   const made = await makeDemo();
   if (!Object.values(made.urls).every((u) => u.startsWith('local-asset://'))) throw new Error('the local graph\'s uploads are not local-asset:// files');
   for (const name of UNUSED) for (const uid of made.blocks[name]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);

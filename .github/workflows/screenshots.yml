@@ -98,9 +98,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # no picture with an email address on it is ever committed
+          # no picture with an email address on it is ever committed (OCR reads some icons as a lone @, so look for an address)
           for f in docs/images/*.png; do
-            if tesseract "$f" - 2>/dev/null | grep -q '@'; then echo "::warning::dropped $f: it shows an @"; git checkout -- "$f" 2>/dev/null || rm "$f"; fi
+            if tesseract "$f" - 2>/dev/null | grep -qE '[A-Za-z0-9._%+-]+ ?@ ?[A-Za-z0-9-]+\.[A-Za-z]{2,}'; then echo "::warning::dropped $f: it shows an email address"; git checkout -- "$f" 2>/dev/null || rm "$f"; fi
           done
           git add docs/images
           if git diff --cached --quiet; then
