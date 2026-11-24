@@ -1,10 +1,10 @@
 // Ties the graph scan, the device store and the Files view together.
 import { type FileEntry, type Row } from './files.ts';
-import { scanGraph, keysAnywhere } from './scan.ts';
+import { scanGraph, keysInUse, pdfKeys } from './scan.ts';
 import { storageKey } from './files.ts';
 import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, localMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, srcOfRow, type ViewState } from './view.ts';
-import { kindOf, extOf, storedName, isLocal, isOwnKey } from './files.ts';
+import { kindOf, extOf, storedName, isLocal, isOwnKey, isOwnLocalKey } from './files.ts';
 
 export const VIEW_ID = 'roam-file-manager';
 const api = () => (window as any).roamAlphaAPI;
@@ -13,6 +13,10 @@ const graphName = (): string => api().graph.name;
 const isLocalGraph = () => api().graph.type === 'offline';
 /** Roam's desktop app: the only place a local graph's files can be read from. */
 const isDesktop = () => navigator.userAgent.includes('Electron');
+/** Whether `key` is a file this graph stores itself. Only those can be unused or deleted: a file pasted
+ *  from another graph belongs to that graph. A hosted graph's are in imgs/app/<graph>/ in Roam's storage.
+ *  A local graph's are local-asset/<graph>/ files, and only Roam's desktop app has them. */
+const ownKey = (key: string, graph: string) => (isLocalGraph() ? isDesktop() && isOwnLocalKey(key, graph) : isOwnKey(key, graph));
 
 
 /** Opening the list with this many sizes and dates to fetch shows the progress box at once ... */
@@ -49,7 +53,7 @@ export class App {
   stop() {
     this.stopped = true;
     this.unmount();
-    this.toasts?.remove(); this.toasts = null;
+    this.toasts?.remove(); this.toasts = null; this.toaster = null;
   }
 
   /** Scans the graph, records what it found as seen, and builds the rows. */
@@ -59,12 +63,11 @@ export class App {
   }
 
   private async doScan() {
-    if (isLocalGraph()) return this.scanLocal();
     const graph = graphName(), now = Date.now();
-    // Files uploaded to this graph live in imgs/app/<graph>/. Only those can be unused or deleted: a
-    // file pasted from another graph belongs to that graph.
-    const own = (key: string) => isOwnKey(key, graph);
+    const own = (key: string) => ownKey(key, graph);
     const files = await scanGraph();
+    // a PDF page goes on drawing from its file after the {{pdf}} block is gone: such a file is in use
+    const inPdf = await pdfKeys().catch(() => new Set<string>());
     const seen = await getSeen(graph).catch(() => [] as Seen[]);
     const seenBy = new Map(seen.map((s) => [s.key, s]));
     const all0 = [...files.keys(), ...seen.map((s) => s.key)];
@@ -85,15 +88,7 @@ export class App {
     });
     const all = [...files.values(), ...unused];
     const lastUsed = new Map(seen.map((s) => [s.key, s.lastUsed]));
-    this.rows = all.map((f) => this.toRow(f, !files.has(f.key), own(f.key), lastUsed.get(f.key) ?? 0));
-  }
-
-  /** A local graph: what its blocks hold is listed, and nothing more. Roam's public API can neither
-   *  list a local graph's stored files nor delete one (file.delete refuses local graphs), so nothing
-   *  here is found as unused, and nothing can be ticked or deleted. */
-  private async scanLocal() {
-    const files = await scanGraph();
-    this.rows = [...files.values()].map((f) => this.toRow(f, false, false, 0));
+    this.rows = all.map((f) => this.toRow(f, !files.has(f.key) && !inPdf.has(f.key), own(f.key), lastUsed.get(f.key) ?? 0));
   }
 
   private toRow(f: FileEntry, unused: boolean, own: boolean, lastUsed: number): Row {
@@ -196,47 +191,63 @@ export class App {
   }
 
   private async deleteFiles(rows: Row[]) {
-    const graph = graphName();
-    // look at the graph again first, this time at every text in it (blocks, page titles, anything
-    // else that holds text): a file the confirmation listed with 0 mentions is not deleted if its
-    // link is anywhere in the graph. A file listed with mentions was confirmed with the warning.
-    const current = await keysAnywhere();
-    const gone: string[] = [];
+    const graph = graphName(), view = this.view;
+    // Look at the graph again first. A file the confirmation listed with 0 mentions is not deleted if a
+    // block mentions it by now, or if it is in use outside block text (a PDF page, block props such as
+    // a drawing): that second look runs only when a ticked file has 0 mentions. A file listed with
+    // mentions was confirmed with the warning. If the graph can't be checked, nothing is deleted.
+    let current: Awaited<ReturnType<typeof keysInUse>>;
+    try { current = await keysInUse(rows.some((r) => r.uses.length === 0)); }
+    catch (e) {
+      console.warn('[roam-file-manager]', e);
+      this.errorToast('Couldn\'t check the graph. Nothing was deleted.');
+      return;
+    }
+    const gone: string[] = [], mentioned: Row[] = [], used: Row[] = [], failed: Row[] = [];
     for (const r of rows) {
-      // unloaded, or another graph opened, since the confirmation: the rest is left alone
-      if (this.stopped || graphName() !== graph) break;
-      if (!r.own || isLocal(r.url) || !isOwnKey(r.key, graph) || storageKey(r.url) !== r.key || (r.uses.length === 0 && current.has(r.key))) continue;
+      // unloaded, the list left, or another graph opened since the confirmation: the rest is left alone
+      if (this.stopped || this.view !== view || graphName() !== graph) break;
+      if (!r.own || !ownKey(r.key, graph) || storageKey(r.url) !== r.key) continue;
+      if (r.uses.length === 0 && current.other.has(r.key)) { used.push(r); continue; }
+      if (r.uses.length === 0 && current.text.has(r.key)) { mentioned.push(r); continue; }
       let answered = true;
       try { await api().file.delete({ url: r.url }); }
       catch (e) { answered = false; console.warn('[roam-file-manager] delete failed', r.key, e); }
       // Then storage is asked about the file: 'gone' is its 403 or 404. A delete that threw counts only
       // when storage says the file isn't there (no error text is read). One that didn't throw counts
       // unless storage still has the file.
-      const m = await fetchMeta(r.url).catch(() => null);
+      // (a local graph's file: Roam's desktop app is asked, where it serves the file)
+      const m = await (isLocal(r.url) ? localMeta(srcOfRow(r)) : fetchMeta(r.url)).catch(() => null);
       if (m === 'gone' || (answered && m === null)) gone.push(r.key);
+      else failed.push(r);
     }
     await forget(graph, gone).catch(() => {});
     for (const k of gone) this.meta.delete(k);
     // the blocks that held a deleted file keep its dead link: remember that the file is gone
-    const dead: [string, Meta][] = gone.filter((k) => current.has(k)).map((k) => [k, { size: 0, created: 0, fileName: null, type: null, gone: true }]);
+    const dead: [string, Meta][] = gone.filter((k) => current.text.has(k)).map((k) => [k, { size: 0, created: 0, fileName: null, type: null, gone: true }]);
     for (const [k, m] of dead) this.meta.set(k, m);
     await putMeta(dead).catch(() => {});
-    if (this.stopped) return;
+    if (this.stopped || this.view !== view) return;
     await this.scan().catch(() => {});
     this.view?.setRows(this.rows);
-    // what was asked for, wasn't deleted, and is still listed
-    const left = rows.filter((r) => !gone.includes(r.key) && this.rows.some((x) => x.key === r.key));
-    if (left.length) this.errorToast(`Couldn't delete ${left.map((r) => r.name).join(', ')}`);
+    // what was kept, and why
+    const names = (list: Row[]) => list.map((r) => r.name).join(', ');
+    if (used.length) this.errorToast(`Still used in a PDF page or drawing: ${names(used)}`);
+    if (mentioned.length) this.errorToast(`Still mentioned in a block: ${names(mentioned)}`);
+    if (failed.length) this.errorToast(`Couldn't delete ${names(failed)}`);
   }
 
   /** Roam's toast, in a container of the extension's own, so that unload can take it away. */
+  private toaster: any = null;
   private errorToast(message: string) {
     const T = (window as any).Blueprint?.Core?.Toaster;
     if (!T || this.stopped) return;
-    this.toasts?.remove();
-    this.toasts = document.createElement('div');
-    this.toasts.className = 'rfm-toasts';
-    document.body.append(this.toasts);
-    T.create({ position: 'top' }, this.toasts).show({ message, intent: 'danger', timeout: 6000 });
+    if (!this.toasts?.isConnected) {
+      this.toasts = document.createElement('div');
+      this.toasts.className = 'rfm-toasts';
+      document.body.append(this.toasts);
+      this.toaster = T.create({ position: 'top' }, this.toasts);
+    }
+    this.toaster.show({ message, intent: 'danger', timeout: 6000 });
   }
 }

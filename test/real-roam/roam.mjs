@@ -57,7 +57,9 @@ export const stopServing = () => server?.close();
 export async function launchRoam() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(ROAM_|GITHUB_TOKEN|ACTIONS_)/.test(k)));
   const out = fs.openSync(path.join(roam.logDir, 'roam.log'), 'a');
-  spawn(ROAM_BIN, ['--no-sandbox', `--remote-debugging-port=${CDP_PORT}`], { env, detached: true, stdio: ['ignore', out, out] }).unref();
+  // HEAP_MB: more memory for Roam's window, for a graph too large to load in the default
+  const heap = process.env.HEAP_MB ? [`--js-flags=--max-old-space-size=${+process.env.HEAP_MB}`] : [];
+  spawn(ROAM_BIN, ['--no-sandbox', `--remote-debugging-port=${CDP_PORT}`, ...heap], { env, detached: true, stdio: ['ignore', out, out] }).unref();
   for (let i = 0; i < 90; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
@@ -77,6 +79,7 @@ export async function launchRoam() {
   roam.page.on('console', (m) => { if (m.text().includes('[roam-file-manager]')) log('[page]', m.text().slice(0, 300)); });
   roam.page.on('pageerror', (e) => { if (/file-manager|rfm-/i.test(e.stack ?? e.message)) log('[pageerror]', e.message.slice(0, 300)); });
   roam.page.on('crash', () => log('[crash] Roam\'s window crashed'));
+  roam.page.on('close', () => log('[close] Roam\'s window closed'));
   await roam.page.setViewportSize?.({ width: 1200, height: 773 }).catch(() => {});
 }
 /** Stops Roam with `signal`, then kills what is still running after `grace` ms. Returns true if
@@ -99,7 +102,10 @@ export async function killRoam(signal = 'SIGKILL', grace = 15000) {
 export async function waitFor(label, fn, timeout = 30000, every = 250) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
-    try { const last = await fn(); if (last) return last; } catch { /* page navigating */ }
+    try { const last = await fn(); if (last) return last; } catch (e) {
+      // a page that is navigating is waited for; a window that is gone never comes back
+      if (/has been closed|Target closed/i.test(e?.message ?? '')) throw new Error(`Roam's window closed while waiting for ${label}`);
+    }
     await sleep(every);
   }
   throw new Error(`timed out after ${timeout / 1000} s waiting for ${label}`);

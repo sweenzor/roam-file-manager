@@ -6,9 +6,10 @@
 // Checks what a read-only graph can't show: files uploaded to the graph appear in Files with
 // their name, size and page; a file whose block is deleted turns up as unused; only unused files can
 // be deleted, and only after Roam's confirmation; a delete really removes the file from storage; and
-// a file still in a block is never touched. Writes RESULTS.md and PNG screenshots to $OUT.
+// a file still in a block is never touched; nor is one that block props or a PDF page still use.
+// Writes RESULTS.md and PNG screenshots to $OUT.
 //
-// It uploads three tiny files to the test graph and removes them again, with the page it made.
+// It uploads a few tiny files to the test graph and removes them again, with the pages it made.
 //
 // Credentials come only from the environment (GitHub Actions secrets in CI). They are removed from
 // this process's environment before anything else starts, never written to disk or to the log, and
@@ -31,7 +32,8 @@ const ROOT = path.resolve(import.meta.dirname, '../..');
 const OUT = path.resolve(process.env.OUT || 'real-roam-out');
 const TEST_PAGE = 'File Manager CI test';
 const RUN = Date.now().toString(36);
-const NAMES = { kept: `fm-ci-kept-${RUN}.png`, dropped: `fm-ci-dropped-${RUN}.png`, doc: `fm-ci-doc-${RUN}.txt`, used: `fm-ci-used-${RUN}.png` };
+const NAMES = { kept: `fm-ci-kept-${RUN}.png`, dropped: `fm-ci-dropped-${RUN}.png`, doc: `fm-ci-doc-${RUN}.txt`, used: `fm-ci-used-${RUN}.png`,
+  drawn: `fm-ci-drawn-${RUN}.png`, sized: `fm-ci-sized-${RUN}.png`, paper: `fm-ci-paper-${RUN}.pdf`, extra1: `fm-ci-extra1-${RUN}.png`, extra2: `fm-ci-extra2-${RUN}.png` };
 
 fs.mkdirSync(OUT, { recursive: true });
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'real-roam-'));
@@ -111,7 +113,7 @@ try {
   log('browser', await evalIn(() => { const v = document.createElement('video'); const can = (c) => v.canPlayType(`video/mp4; codecs="${c}"`) || 'no'; return `${navigator.userAgent.match(/Chrome\/[\d.]+|Electron\/[\d.]+/g)?.join(' ')}; H.264 ${can('avc1.42E01E')}, HEVC ${can('hvc1.1.6.L93.B0')}`; }));
   check('Files sits under All Pages in the left sidebar', await evalIn(() => document.querySelector('.rm-left-sidebar__all-pages')?.nextElementSibling?.classList.contains('rm-left-sidebar__files')));
 
-  // ---- four files on a test page ----
+  // ---- the test files on a test page ----
   const made = await evalIn(async ([title, names]) => {
     const api = window.roamAlphaAPI;
     const old = api.data.q('[:find ?u . :in $ ?t :where [?p :node/title ?t] [?p :block/uid ?u]]', title);
@@ -123,11 +125,26 @@ try {
       x.fillStyle = `hsl(${seed},70%,55%)`; x.fillRect(0, 0, 48, 48); x.fillStyle = '#fff'; x.fillRect(12, 12, 24, 24);
       return new Promise((res) => c.toBlob(res, 'image/png'));
     };
+    const pdf = (text) => { // a small valid one-page PDF
+      const stream = `BT /F1 20 Tf 72 700 Td (${text}) Tj ET`;
+      const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+        `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+      let out = '%PDF-1.4\n'; const at = [];
+      objs.forEach((o, i) => { at.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const xref = out.length;
+      return `${out}xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${at.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    };
     const files = {
       kept: new File([await png(210)], names.kept, { type: 'image/png' }),
       dropped: new File([await png(10)], names.dropped, { type: 'image/png' }),
       doc: new File(['File Manager CI test file\n'.repeat(40)], names.doc, { type: 'text/plain' }),
       used: new File([await png(120)], names.used, { type: 'image/png' }),
+      drawn: new File([await png(60)], names.drawn, { type: 'image/png' }),
+      sized: new File([await png(280)], names.sized, { type: 'image/png' }),
+      paper: new File([pdf(names.paper.replace(/\.pdf$/, ''))], names.paper, { type: 'application/pdf' }),
+      extra1: new File([await png(330)], names.extra1, { type: 'image/png' }),
+      extra2: new File([await png(170)], names.extra2, { type: 'image/png' }),
     };
     const out = { pageUid, md: {}, urls: {}, blocks: {} };
     let order = 0;
@@ -150,7 +167,7 @@ try {
   }, [TEST_PAGE, NAMES]);
   urls = made.urls; pageUid = made.pageUid; pageUids.push(made.pageUid, made.page2Uid);
   log('uploaded', JSON.stringify(made.md));
-  check('Roam stored the four test files', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
+  check('Roam stored the test files', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
 
   // ---- they are listed ----
   const openedAt = Date.now();
@@ -238,37 +255,64 @@ try {
   check('Cancel keeps the file', !(await dialogOpen()) && (await stored(urls.kept)) === 200);
   await tick(NAMES.kept);
 
-  // ---- a file whose block is deleted becomes unused ----
-  await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks.dropped);
-  await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks.doc);
-  await sleep(1000);
+  // ---- uses outside block text: block props (where a drawing keeps its pictures) and a PDF page ----
   await closeAllFiles();
+  // one block's props hold the first picture's address, the way an Excalidraw drawing's hold its pictures;
+  // another block's props hold only the saved size of the second picture, which Roam leaves behind
+  const inProps = await evalIn(async ([pageUid, urls]) => {
+    const api = window.roamAlphaAPI, out = {};
+    out.drawing = api.util.generateUID();
+    await api.data.block.create({ location: { 'parent-uid': pageUid, order: 'last' }, block: { uid: out.drawing, string: 'File Manager CI drawing', props: { excalidraw: { files: { f1: { id: 'f1', mimeType: 'image/png', dataURL: urls.drawn } } } } } });
+    out.sizes = api.util.generateUID();
+    await api.data.block.create({ location: { 'parent-uid': pageUid, order: 'last' }, block: { uid: out.sizes, string: 'File Manager CI sizes', props: { 'image-size': { [urls.sized]: { width: 120, height: 120 } } } } });
+    const props = (uid) => JSON.stringify(api.data.pull('[:block/props]', [':block/uid', uid])?.[':block/props'] ?? null);
+    out.ok = props(out.drawing).includes(urls.drawn) && props(out.sizes).includes(urls.sized) && props(out.sizes).includes('image-size');
+    return out;
+  }, [pageUid, urls]);
+  check('two test blocks hold a picture in their props: one as a drawing does, one as a saved image size', inProps.ok);
+  // a highlight on a PDF makes Roam give the PDF a page of its own, which keeps the address in :pdf/url
+  const pdfPages = () => evalIn((url) => window.roamAlphaAPI.data.q('[:find [?uid ...] :in $ ?u :where [?e :pdf/url ?u] [?e :block/uid ?uid]]', url) ?? [], urls.paper);
+  await evalIn((uid) => window.roamAlphaAPI.ui.mainWindow.openPage({ page: { uid } }), pageUid);
+  await waitFor('the PDF in its block', () => evalIn(() => document.querySelectorAll('.roam-article .rm-pdf-container .rm-pdf-toolbar button').length > 2), 30000);
+  await evalIn(() => document.querySelector('.roam-article .rm-pdf-container').scrollIntoView({ block: 'center' }));
+  await sleep(6000);
+  await evalIn(() => document.querySelectorAll('.roam-article .rm-pdf-container .rm-pdf-toolbar button')[1].click()); // area highlight
+  await sleep(800);
+  const box = await evalIn(() => { const r = document.querySelector('.roam-article .rm-pdf-container').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  log('pdf block', JSON.stringify(box));
+  await roam.page.mouse.move(box.x + 50, box.y + 110); await roam.page.mouse.down();
+  await roam.page.mouse.move(box.x + 300, box.y + 190, { steps: 8 }); await roam.page.mouse.up();
+  await waitFor('Roam\'s PDF page for the test PDF', async () => (await pdfPages()).length > 0, 30000);
+  pageUids.push(...await pdfPages());
+  check('a highlight on the test PDF gave it a PDF page, which keeps the file\'s address (:pdf/url)', true);
+  await evalIn(() => document.querySelector('.rm-left-sidebar__daily-notes').click());
+  await sleep(1500);
+
+  // ---- a file whose block is deleted becomes unused ----
+  for (const k of ['dropped', 'doc', 'drawn', 'sized', 'paper', 'extra1', 'extra2']) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks[k]);
+  await sleep(1000);
+  check('the PDF page still has the address after the {{pdf}} block is gone', (await pdfPages()).length > 0);
   await openAllFiles();
   await setSwitch('Unused', true);
   await closePopover();
   await waitFor('the unused files', async () => (await rows()).some((r) => r.name === NAMES.dropped), 20000);
   let list = await rows();
   check('Unused filter lists the files no block uses any more', list.some((r) => r.name === NAMES.dropped) && list.some((r) => r.name === NAMES.doc) && !list.some((r) => r.name === NAMES.kept), list.map((r) => r.name).filter((n) => n?.includes(RUN)).join(', '));
+  check('a PDF that a PDF page still draws from is not listed as unused', !list.some((r) => r.name === NAMES.paper));
   check('an unused file shows 0 mentions and no page', (await rowOf(NAMES.dropped))?.mentions === '0' && !(await rowOf(NAMES.dropped))?.page);
-  check('the deleted blocks did not delete the files', (await stored(urls.dropped)) === 200 && (await stored(urls.doc)) === 200);
+  check('the deleted blocks did not delete the files', (await Promise.all(['dropped', 'doc', 'drawn', 'sized', 'paper'].map((k) => stored(urls[k])))).every((s) => s === 200));
   await shot('unused');
 
-  // ---- delete: only after the confirmation, and never a file whose link is still in the graph ----
-  // the text file's link now lives on in a page title, which the list doesn't read
-  const titleUid = await evalIn(async (url) => {
-    const uid = window.roamAlphaAPI.util.generateUID();
-    await window.roamAlphaAPI.data.page.create({ page: { title: `File Manager CI link ${url}`, uid } });
-    return uid;
-  }, urls.doc);
-  pageUids.push(titleUid);
-  await sleep(1000);
-  await tick(NAMES.dropped); await tick(NAMES.doc);
+  // ---- delete: only after the confirmation, and never a file the graph still uses ----
+  /** A toast of the extension's that is on screen, not covered, and holds every one of these texts. */
+  const toastShows = (...texts) => evalIn((texts) => [...document.querySelectorAll('.bp3-toast')].some((t) => { const b = t.getBoundingClientRect(); return texts.every((x) => t.textContent.includes(x)) && b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('.bp3-toast') === t; }), texts);
+  for (const k of ['dropped', 'doc', 'drawn', 'sized']) await tick(NAMES[k]);
   check('trash is on for unused files', !(await trashOff()));
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
   await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
   const dialog = await evalIn(() => document.querySelector('.confirmation-content-dialog').innerText);
-  check('asks before deleting, naming the files and their mentions', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill.empty-pill').length === 2), dialog.split('\n')[0]);
-  check('no warning for files with 0 mentions, and each has its picture or icon', !(await warningText()) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog img.rfm-delete-thumb').length === 1 && document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 2));
+  check('asks before deleting, naming the files and their mentions', /permanently delete 4 files\?/.test(dialog) && ['dropped', 'doc', 'drawn', 'sized'].every((k) => dialog.includes(NAMES[k])) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill.empty-pill').length === 4), dialog.split('\n')[0]);
+  check('no warning for files with 0 mentions, and each has its picture or icon', !(await warningText()) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog img.rfm-delete-thumb').length === 3 && document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 4));
   await shot('delete-confirm');
   // Enter on a focused Cancel cancels, even for files with 0 mentions (where Enter alone confirms)
   await roam.page.focus('.confirmation-content-dialog .cancel-button');
@@ -287,31 +331,70 @@ try {
   check('Cancel deletes nothing', (await stored(urls.dropped)) === 200 && !!(await rowOf(NAMES.dropped)));
   await roam.page.click(`${VIEW} .bp3-icon-trash`);
   await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
-  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
+  // once the delete runs, Cancel, the backdrop and Escape leave the confirmation where it is
+  const locked = await evalIn(() => {
+    const d = document.querySelector('.confirmation-content-dialog'), cancel = d.querySelector('.cancel-button');
+    d.querySelector('.confirm-button').click();
+    const off = cancel.disabled;
+    cancel.click();
+    d.closest('.bp3-portal').querySelector('.bp3-overlay-backdrop').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    return { off, open: !!document.querySelector('.confirmation-content-dialog') };
+  });
+  check('while the delete runs, Cancel is off and neither it, a click outside nor Escape closes the confirmation', locked.off && locked.open, JSON.stringify(locked));
   await waitFor('the deleted file to leave the list', async () => !(await rowOf(NAMES.dropped)), 30000);
+  await waitFor('the confirmation to close at the end of the delete', async () => !(await dialogOpen()), 30000);
   await sleep(1500);
-  let after = [await stored(urls.dropped), await stored(urls.doc), await stored(urls.kept)];
-  check('confirming deletes the file from Roam\'s storage', [403, 404].includes(after[0]), `storage answers ${after[0]}`);
-  check('a file whose link is still somewhere in the graph is not deleted', after[1] === 200 && !!(await rowOf(NAMES.doc)));
-  check('the file still in a block is untouched', after[2] === 200);
+  const gone = (s) => [403, 404].includes(s);
+  let after = Object.fromEntries(await Promise.all(['dropped', 'doc', 'sized', 'drawn', 'kept'].map(async (k) => [k, await stored(urls[k])])));
+  check('confirming deletes a file used nowhere from Roam\'s storage', gone(after.dropped) && gone(after.doc), `storage answers ${after.dropped}, ${after.doc}`);
+  check('a file whose only trace is a saved image size in block props is deleted', gone(after.sized), `storage answers ${after.sized}`);
+  check('a file whose block is gone but which block props still hold (a drawing) is not deleted', after.drawn === 200 && !!(await rowOf(NAMES.drawn)), `storage answers ${after.drawn}`);
+  check('the file still in a block is untouched', after.kept === 200);
   check('nothing stays ticked after a delete', await evalIn((v) => ![...document.querySelectorAll(`${v} input[type=checkbox]`)].some((c) => c.checked), VIEW) && await trashOff());
-  check('says which file it could not delete', await evalIn((name) => [...document.querySelectorAll('.bp3-toast')].some((t) => { const b = t.getBoundingClientRect(); return t.textContent.includes(name) && b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('.bp3-toast') === t; }), NAMES.doc));
+  check('says why the file was kept', await toastShows(NAMES.drawn, 'Still used in a PDF page or drawing'));
   await shot('after-delete');
-  // with the page title gone, the text file can go too
-  await evalIn((uid) => window.roamAlphaAPI.data.page.delete({ page: { uid } }), titleUid);
-  await sleep(1000);
-  await tick(NAMES.doc);
-  await roam.page.click(`${VIEW} .bp3-icon-trash`);
-  await waitFor('the confirmation', () => evalIn(() => !!document.querySelector('.confirmation-content-dialog')), 5000);
+  // the PDF: its block is gone, its PDF page is not
+  await setSwitch('Unused', false);
+  await closePopover();
+  await search(NAMES.paper);
+  check('the PDF is listed, with 0 mentions', (await rowOf(NAMES.paper))?.mentions === '0');
+  await tick(NAMES.paper);
+  await openDialog();
   await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
-  await waitFor('the text file to leave the list', async () => !(await rowOf(NAMES.doc)), 30000);
-  after = [await stored(urls.doc), await stored(urls.kept)];
-  check('once nothing links to it, it is deleted', [403, 404].includes(after[0]) && after[1] === 200, `storage answers ${after[0]}`);
+  await waitFor('the confirmation to close at the end of the delete', async () => !(await dialogOpen()), 30000);
+  await sleep(1500);
+  check('a PDF whose {{pdf}} block is gone but whose PDF page remains is not deleted', (await stored(urls.paper)) === 200 && !!(await rowOf(NAMES.paper)), `storage answers ${await stored(urls.paper)}`);
+  check('says why the PDF was kept', await toastShows(NAMES.paper, 'Still used in a PDF page or drawing'));
+  // leaving Files while a delete runs ends it before its next file
+  await search('fm-ci-extra');
+  await tick(NAMES.extra1); await tick(NAMES.extra2);
+  await openDialog();
+  await evalIn(() => { document.querySelector('.confirmation-content-dialog .confirm-button').click(); document.querySelector('.rm-left-sidebar__daily-notes').click(); });
+  await waitFor('the list to close', () => evalIn((v) => !document.querySelector(v), VIEW), 10000);
+  await sleep(5000);
+  const extras = [await stored(urls.extra1), await stored(urls.extra2)];
+  check('leaving Files during a delete closes the confirmation and ends the delete before its next file', !(await dialogOpen()) && extras.some((s) => s === 200), `storage answers ${extras.join(', ')}`);
+  // with the drawing and the PDF page gone, those files can go too
+  await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), inProps.drawing);
+  for (const uid of await pdfPages()) await evalIn((uid) => window.roamAlphaAPI.data.page.delete({ page: { uid } }), uid);
+  await sleep(1000);
+  await openAllFiles();
   await setSwitch('Unused', false);
   await closePopover();
   await search('fm-ci-');
+  await waitFor('the list', async () => !!(await rowOf(NAMES.drawn)), 20000);
+  const last = ['drawn', 'paper', 'extra1', 'extra2'];
+  for (const k of last) if (await rowOf(NAMES[k])) await tick(NAMES[k]);
+  await openDialog();
+  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
+  await waitFor('the confirmation to close at the end of the delete', async () => !(await dialogOpen()), 60000);
+  await sleep(1500);
+  const lastAfter = await Promise.all(last.map((k) => stored(urls[k])));
+  check('once nothing uses them, they are deleted', lastAfter.every(gone), `storage answers ${lastAfter.join(', ')}`);
+  check('the file in two blocks is still stored', (await stored(urls.kept)) === 200);
   list = await rows();
-  check('the list keeps the file in use and drops the deleted ones', list.some((r) => r.name === NAMES.kept) && !list.some((r) => r.name === NAMES.dropped || r.name === NAMES.doc));
+  check('the list keeps the file in use and drops the deleted ones', list.some((r) => r.name === NAMES.kept) && !list.some((r) => [NAMES.dropped, NAMES.doc, NAMES.sized, NAMES.drawn, NAMES.paper].includes(r.name)));
 
   // ---- deleting a file that a block still holds ----
   await tick(NAMES.used);
@@ -357,6 +440,8 @@ try {
     if (roam.page && roam.signedIn) {
       const left = await evalIn(async ([urls, pageUids]) => {
         const api = window.roamAlphaAPI; const left = [];
+        // a PDF page Roam made for one of the test files
+        for (const url of Object.values(urls)) for (const uid of api.data.q('[:find [?uid ...] :in $ ?u :where [?e :pdf/url ?u] [?e :block/uid ?uid]]', url) ?? []) pageUids.push(uid);
         for (const uid of pageUids) if (uid && api.data.pull('[:block/uid]', [':block/uid', uid])) await api.data.page.delete({ page: { uid } });
         for (const url of Object.values(urls)) {
           if ((await fetch(url.replace(/\?.*$/, ''))).status !== 200) continue;

@@ -38,6 +38,7 @@ const HOSTED_MAX = +(process.env.HOSTED_MAX || 300000);
 const KIND = process.env.GRAPH_KIND || 'auto'; // local, hosted, or auto: local when the account can make one
 const PREFIX = 'rfm-big ';
 const LOAD_MINUTES = +(process.env.LOAD_MINUTES || 40);
+const CLEAN_GOES = +(process.env.CLEAN_GOES || 12);
 let hosted = false;
 const VIEW = '.rfm-view';
 
@@ -91,11 +92,19 @@ async function openLocalGraph() {
     await sleep(1500);
     field = roam.page.locator('input[placeholder="New Local Graph Name"]');
   }
-  if (!(await field.count())) throw new Error(`no form to make a local graph (Roam shows: ${await screen()})`);
-  await field.first().fill(GRAPH);
-  await sleep(300);
-  const create = roam.page.locator('button, .bp3-button', { hasText: /^Create Local Graph$/ });
-  if (await create.count()) await create.first().click(); else await field.first().press('Enter');
+  if (await field.count()) {
+    await field.first().fill(GRAPH);
+    await sleep(300);
+    const create = roam.page.locator('button, .bp3-button', { hasText: /^Create Local Graph$/ });
+    if (await create.count()) await create.first().click(); else await field.first().press('Enter');
+  } else {
+    // Roam's graph list no longer has that form (2026-11-24). A graph opened by its address can be
+    // written to since the test account has a plan, and local.mjs makes its graph that way.
+    log('no form to make a local graph (Roam shows:', await screen(), '); opening one by its address');
+    await roam.page.goto(`${base}#/offline/${GRAPH}`);
+    await sleep(1000);
+    if (!(await graphOpen().catch(() => false))) await roam.page.reload().catch(() => {});
+  }
   try { await waitFor('the new local graph', graphOpen, 60000); } catch {
     throw new Error(`the local graph did not open (Roam shows: ${await screen()}; ${await evalIn(() => [...document.querySelectorAll('.bp3-dialog *, .bp3-callout, .bp3-toast-message, [class*="error"]')].filter((e) => e.children.length === 0 && e.textContent.trim()).map((e) => e.textContent.trim().slice(0, 120)).slice(0, 6).join(' | '))})`);
   }
@@ -152,6 +161,23 @@ const fill = (count, files, seed) => evalIn(async ([count, files, seed, graph, p
   }
   return { made, madeFiles, how, why };
 }, [count, files, seed, GRAPH, PREFIX]);
+/** Gives some of the file blocks props, as a graph in use has: on PROPS_SIZES of them the saved size of
+ *  a resized picture (under the file's own address), on PROPS_DRAWINGS a file's address inside a nested
+ *  map, the way a drawing keeps its pictures. */
+const PROPS_SIZES = +(process.env.PROPS_SIZES || 1000), PROPS_DRAWINGS = +(process.env.PROPS_DRAWINGS || 100);
+const addProps = () => evalIn(async ([sizes, drawings]) => {
+  const api = window.roamAlphaAPI, d = api.data;
+  const rows = d.q('[:find ?uid ?s :where [?b :block/string ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/uid ?uid]]');
+  let made = 0;
+  for (const [uid, text] of rows.slice(0, sizes + drawings)) {
+    const url = text.match(/https:\/\/firebasestorage[^\s)}]+/)?.[0];
+    if (!url) continue;
+    const props = made < sizes ? { 'image-size': { [url]: { width: 320, height: 200 } } } : { excalidraw: { files: { f1: { id: 'f1', mimeType: 'image/png', dataURL: url } } } };
+    await (d.block?.update ?? api.updateBlock)({ block: { uid, props } });
+    if (++made % 20 === 0) await new Promise((r) => setTimeout(r, 500)); // a hosted graph saves each write: 1,100 at once never finished saving (2026-11-24)
+  }
+  return { made, withProps: d.q('[:find (count ?b) . :where [?b :block/props]]') ?? 0 };
+}, [PROPS_SIZES, PROPS_DRAWINGS]);
 const countBlocks = () => evalIn(() => { const t = performance.now(); const n = window.roamAlphaAPI.data.q('[:find (count ?b) . :where [?b :block/string]]') ?? 0; return { n, ms: Math.round(performance.now() - t) }; });
 
 // ---------- a hosted graph: saving, and taking the pages out again ----------
@@ -174,7 +200,7 @@ async function deleteOurPages() {
       for (const uid of some) await del({ page: { uid } });
     }, uids.slice(i, i + 20));
     if (hosted) await waitSynced().catch((e) => log('still saving after a batch of deletes:', e.message.split('\n')[0]));
-    if (i && i % 200 === 0) log('deleted', i, 'of', uids.length, 'pages');
+    if (i % 100 === 0) log('deleted', i + 20, 'of', uids.length, 'pages; heap', await heapMb(), 'MB');
   }
   return uids.length;
 }
@@ -200,6 +226,29 @@ async function cleanUp() {
   log('clean-up: deleted', n, 'pages; after a reload', left, 'of them are left and the graph has', c.n, 'blocks');
   if (left) throw new Error(`${left} pages of this run are still in the graph after the clean-up`);
   return { n, blocks: c.n };
+}
+const heapMb = () => evalIn(() => Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1048576)).catch(() => -1);
+/** The clean-up, started again in a new Roam when Roam's window closes under it: a graph left with
+ *  300,000 blocks of a run closed the window 80 s after it opened (2026-11-24). What was deleted and
+ *  saved before the window closed stays deleted, so each go has less to do. */
+async function cleanUpWithRestarts() {
+  for (let go = 1; ; go++) {
+    try {
+      if (go > 1) {
+        await killRoam();
+        process.env.HEAP_MB ||= '4096';
+        await launchRoam();
+        await signIn(EMAIL, PASSWORD);
+        await openHosted();
+        log('Roam is open again with', (await ourPages()).length, 'pages of the run left; heap', await heapMb(), 'MB');
+      }
+      return await cleanUp();
+    } catch (e) {
+      const why = e.message.split('\n')[0];
+      if (go >= CLEAN_GOES || !/closed/i.test(why)) throw e;
+      log('clean-up go', go, 'ended:', why, '; starting Roam again');
+    }
+  }
 }
 
 // ---------- the made-up files ----------
@@ -286,6 +335,15 @@ const timeQueries = () => evalIn(async () => {
     for (let i = 0; i < uids.length; i += 100) { const t = performance.now(); d.pull_many(BLOCK, uids.slice(i, i + 100).map((u) => [':block/uid', u])); longest = Math.max(longest, performance.now() - t); await new Promise((r) => setTimeout(r)); }
     out['as the extension does it: reading the blocks'] = { ms: Math.round(performance.now() - t0), stall: Math.round(longest), rows: uids.length };
   } catch (e) { out['as the extension does it: reading the blocks'] = { error: String(e?.message ?? e).slice(0, 120) }; }
+  // the last look before a delete of a file with 0 mentions: PDF pages, then block props
+  await safe('before a delete: PDF pages (:pdf/url)', async () => d.q('[:find [?u ...] :where [_ :pdf/url ?u]]'));
+  const PROPS = `[:find [?uid ...] :where [?b :block/props ?p] [(str ?p) ?s] [(clojure.string/includes? ?s "${NEEDLE}")] [?b :block/uid ?uid]]`;
+  await safe('before a delete: which blocks hold a file in their props', () => d.async.q(PROPS));
+  try {
+    const uids = d.q(PROPS); let longest = 0; const t0 = performance.now();
+    for (let i = 0; i < uids.length; i += 100) { await new Promise((r) => setTimeout(r)); const t = performance.now(); d.pull_many('[:block/props]', uids.slice(i, i + 100).map((u) => [':block/uid', u])); longest = Math.max(longest, performance.now() - t); }
+    out['before a delete: reading those props'] = { ms: Math.round(performance.now() - t0), stall: Math.round(longest), rows: uids.length };
+  } catch (e) { out['before a delete: reading those props'] = { error: String(e?.message ?? e).slice(0, 120) }; }
   if (d.backend?.q) await safe("Roam's backend (off the window's thread): which blocks", () => d.backend.q(FIND));
   await safe('before: one query for everything (async.q)', () => d.async.q(Q));
   await safe('one query for everything (q)', async () => d.q(Q));
@@ -394,7 +452,8 @@ try {
   serve(DIST);
   await launchRoam();
   await signIn(EMAIL, PASSWORD);
-  if (KIND === 'hosted') hosted = true;
+  // the clean-up check is about the hosted test graph, whatever kind of graph a fill would use
+  if (KIND === 'hosted' || process.env.CLEAN_ONLY) hosted = true;
   else {
     try { await openLocalGraph(); } catch (e) {
       if (KIND === 'local') throw e;
@@ -430,7 +489,7 @@ try {
   log('extension loaded; API:', await apiNow());
 
   const t0 = Date.now();
-  let have = (await countBlocks()).n, filesLeft = FILES, seed = 1, rate = 0;
+  let have = (await countBlocks()).n, filesLeft = FILES, seed = 1, rate = 0, propsDone = false;
   for (const size of hosted ? [...new Set(SIZES.map((n) => Math.min(n, HOSTED_MAX)))] : SIZES) {
     while (have < size) {
       if ((Date.now() - t0) / 60000 > FILL_MINUTES) break;
@@ -451,6 +510,13 @@ try {
     const c = await countBlocks();
     have = c.n;
     if (hosted) log('saved to the server after', await waitSynced(20), 'ms');
+    if (!propsDone) {
+      propsDone = true;
+      const p = await addProps();
+      if (hosted) await waitSynced(20);
+      log('props on', p.made, 'file blocks;', p.withProps, 'blocks in the graph have props');
+      notes.push(`${PROPS_SIZES.toLocaleString('en')} of the file blocks have a saved image size in their props and ${PROPS_DRAWINGS} hold a file's address there as a drawing does (${p.withProps.toLocaleString('en')} blocks with props in the graph).`);
+    }
     log('measuring at', have, 'blocks;', FILES - filesLeft, 'file links; counting them took', c.ms, 'ms');
     await sleep(5000);
     await measure(have);
@@ -463,7 +529,8 @@ try {
 }
 if (hosted && roam.signedIn) {
   try {
-    const c = await cleanUp();
+    const c = await cleanUpWithRestarts();
+    if (process.env.CLEAN_ONLY) failed = ''; // a clean-only run is about the clean-up, and it got there
     notes.push(`Afterwards the run deleted its ${c.n.toLocaleString('en')} pages again; after a reload none was left and the graph had ${c.blocks.toLocaleString('en')} blocks.`);
   } catch (e) {
     const why = e.message.split('\n')[0];

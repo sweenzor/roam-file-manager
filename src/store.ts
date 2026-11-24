@@ -95,9 +95,11 @@ export async function fetchMeta(url: string, signal?: AbortSignal): Promise<Meta
 }
 
 /** A local graph's file, read where Roam's desktop app serves it to the page: its size, counted as it
- *  streams by (the app sends no Content-Length), and its type. Nothing of it is kept. */
-export async function localMeta(src: string, signal?: AbortSignal): Promise<Meta | null> {
+ *  streams by (the app sends no Content-Length), and its type. Nothing of it is kept. 'gone' when the app
+ *  no longer has the file (it answers 404). */
+export async function localMeta(src: string, signal?: AbortSignal): Promise<Meta | 'gone' | null> {
   const r = await fetch(src, { signal });
+  if (r.status === 404) return 'gone';
   if (!r.ok || !r.body) return null;
   let size = 0;
   const reader = r.body.getReader();

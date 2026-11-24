@@ -44,22 +44,58 @@ export async function scanGraph(): Promise<Map<string, FileEntry>> {
 }
 
 
-// Every value in the graph that holds an uploaded file's address, whatever attribute it is in: block
-// text, page titles, and anything else Roam or an extension stores (Roam keeps a PDF's URL in a
-// :url attribute, for one). Block props are left out: Roam records the size of a resized image
-// there under its URL and keeps that after the image is gone from the block, so it isn't a use.
-// Much slower than the block query, so it runs only as the last check before a delete.
-const anywhere = () => `[:find ?s
-  :where [_ ?a ?v] [(not= ?a :block/props)]
-         [(str ?v) ?s]
-         ${holds('?s')}]`;
+/** Every string in a block's props, keys included, except Roam's saved image sizes: Roam records the
+ *  size of a resized image there under its URL and keeps that after the image is gone from the block,
+ *  so it isn't a use. */
+export function propStrings(v: any, out: string[] = []): string[] {
+  if (typeof v === 'string') out.push(v);
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) {
+    if (k === ':image-size' || k === 'image-size') continue;
+    out.push(k);
+    propStrings(x, out);
+  }
+  return out;
+}
 
-/** The storage paths of every file whose URL is anywhere in the graph. */
-export async function keysAnywhere(): Promise<Set<string>> {
-  const api = (window as any).roamAlphaAPI;
-  const keys = new Set((await scanGraph()).keys());
-  const ANYWHERE = anywhere();
-  const rows: [string][] = api.data.async?.q ? await api.data.async.q(ANYWHERE) : api.data.q(ANYWHERE);
-  for (const [text] of rows) for (const r of findRefs(text)) { const k = storageKey(r.url); if (k) keys.add(k); }
+const run = async (query: string): Promise<any[]> => {
+  const d = (window as any).roamAlphaAPI.data;
+  return (d.async?.q ? await d.async.q(query) : d.q(query)) ?? [];
+};
+const keysOf = (text: unknown, into: Set<string>) => {
+  if (typeof text !== 'string') return;
+  for (const r of findRefs(text)) { const k = storageKey(r.url); if (k) into.add(k); }
+};
+
+/** The files a PDF page still draws from: Roam keeps a PDF's address in :pdf/url, and goes on rendering
+ *  from it after the {{pdf}} block is gone. Reads that one attribute only, by its index. */
+export async function pdfKeys(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  for (const u of await run('[:find [?u ...] :where [_ :pdf/url ?u]]')) keysOf(u, keys);
   return keys;
+}
+
+/** The files block props hold, except under :image-size: an Excalidraw drawing keeps its pictures'
+ *  addresses there and nowhere else, and other extensions store what they like. Which blocks: one query
+ *  that looks at the props only (few blocks have any). The props themselves: pull_many, which keeps the
+ *  keys' namespaces (q drops them), a hundred blocks at a time with a pause between. */
+export async function propKeys(): Promise<Set<string>> {
+  const d = (window as any).roamAlphaAPI.data;
+  const keys = new Set<string>();
+  const uids: string[] = await run(`[:find [?uid ...]
+  :where [?b :block/props ?p] [(str ?p) ?s] ${holds('?s')} [?b :block/uid ?uid]]`);
+  for (let i = 0; i < uids.length; i += CHUNK) {
+    await pause();
+    const blocks = d.pull_many('[:block/props]', uids.slice(i, i + CHUNK).map((u) => [':block/uid', u])) ?? [];
+    for (const b of blocks) for (const text of propStrings(b?.[':block/props'])) keysOf(text, keys);
+  }
+  return keys;
+}
+
+/** Storage paths still in use: `text` in block text (a mention), `other` outside it (a PDF page or block
+ *  props, such as a drawing). `thorough` looks outside block text; without it `other` is empty. */
+export async function keysInUse(thorough: boolean): Promise<{ text: Set<string>; other: Set<string> }> {
+  const text = new Set((await scanGraph()).keys());
+  const other = new Set<string>();
+  if (thorough) for (const k of [...await pdfKeys(), ...await propKeys()]) other.add(k);
+  return { text, other };
 }
