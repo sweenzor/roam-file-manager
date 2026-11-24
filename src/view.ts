@@ -53,6 +53,7 @@ export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
 
 export const STYLES = `
+.rfm-toasts{position:fixed;inset:0;z-index:40;pointer-events:none}
 .rfm-view .rfm-scroller .rm-pages-row{height:${ROW_H}px;box-sizing:border-box}
 .rfm-view .rfm-scroller .rm-pages-row .rm-pages-title-col{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;overflow:hidden;padding-top:6px;padding-bottom:6px}
 .rfm-view .rfm-thumb{flex:0 0 26px;width:26px;height:26px;border-radius:3px;object-fit:cover;background:#f5f8fa}
@@ -526,7 +527,9 @@ export class FilesView {
     this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(left ? r.left : r.right - width, window.innerWidth - width - 8))}px`, zIndex: '20' } },
       h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content' }, body))));
     document.body.append(this.popover);
-    setTimeout(() => document.addEventListener('mousedown', this.outside, true));
+    // only while this popover is still the open one: closed (or the view destroyed) in between, nothing is left listening
+    const opened = this.popover;
+    setTimeout(() => { if (this.popover === opened) document.addEventListener('mousedown', this.outside, true); });
   }
 
   // ---------- preview on hover: a picture, or a video that plays ----------
@@ -638,6 +641,7 @@ export class FilesView {
     let overlay: HTMLElement, going = false;
     const close = () => {
       if (this.closeDialog === close) this.closeDialog = null;
+      this.el.removeAttribute('inert');
       this.hidePreview(); overlay.remove(); document.removeEventListener('keydown', key, true);
     };
     const go = async () => {
@@ -684,8 +688,9 @@ export class FilesView {
               confirm))))));
     this.closeDialog?.();
     this.closeDialog = close;
-    // the trash button keeps no focus behind the dialog: Enter belongs to the dialog now
+    // the trash button keeps no focus behind the dialog, and the list takes no keys or clicks under it
     (document.activeElement as HTMLElement | null)?.blur?.();
+    this.el.setAttribute('inert', '');
     document.body.append(overlay);
     document.addEventListener('keydown', key, true);
   }

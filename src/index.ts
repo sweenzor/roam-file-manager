@@ -30,7 +30,7 @@ function onload() {
   cleanup.push(() => {
     if (app.mounted) api.ui.mainWindow.closeComponent(ID);
     api.ui.mainWindow.unregisterComponent(ID);
-    app.unmount();
+    app.stop();
   });
 
   // "Files" in the left sidebar, built like the All Pages row. Roam redraws the sidebar when it

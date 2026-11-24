@@ -59,13 +59,21 @@ export function findRefs(text: string): Ref[] {
 /** The storage path of a download URL, decoded (imgs/app/graph/id.ext), or null. A local graph's
  *  file: local-asset/graph/id.ext. */
 export function storageKey(url: string): string | null {
-  if (isLocal(url)) { const p = url.slice(LOCAL_SCHEME.length).replace(/[?#].*$/, ''); return p.includes('/') ? `local-asset/${p}` : null; }
+  // <graph>/<file> and nothing else: no further folders, no "..", so the address can't point anywhere but a graph's upload
+  if (isLocal(url)) { const p = url.slice(LOCAL_SCHEME.length).replace(/[?#].*$/, ''); return /^[^/\\%]+\/[^/\\%]+$/.test(p) && !p.split('/').some((x) => x === '.' || x === '..') ? `local-asset/${p}` : null; }
   const m = url.match(/\/o\/([^?#]+)/);
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
 
 /** Files in an encrypted graph are stored encrypted, with .enc after their own extension. */
+/** Whether `key` is an upload of the hosted graph `graph`: imgs/app/<graph>/<file>, the file right in that folder. */
+export const isOwnKey = (key: string, graph: string) => {
+  const prefix = `imgs/app/${graph}/`;
+  const file = key.slice(prefix.length);
+  return key.startsWith(prefix) && file.length > 0 && !file.includes('/') && file !== '.' && file !== '..';
+};
+
 export const isEncrypted = (key: string) => key.toLowerCase().endsWith('.enc');
 
 export function extOf(key: string): string {

@@ -295,7 +295,7 @@ try {
   check('a file whose link is still somewhere in the graph is not deleted', after[1] === 200 && !!(await rowOf(NAMES.doc)));
   check('the file still in a block is untouched', after[2] === 200);
   check('nothing stays ticked after a delete', await evalIn((v) => ![...document.querySelectorAll(`${v} input[type=checkbox]`)].some((c) => c.checked), VIEW) && await trashOff());
-  check('says which file it could not delete', await evalIn((name) => [...document.querySelectorAll('.bp3-toast')].some((t) => t.textContent.includes(name)), NAMES.doc));
+  check('says which file it could not delete', await evalIn((name) => [...document.querySelectorAll('.bp3-toast')].some((t) => { const b = t.getBoundingClientRect(); return t.textContent.includes(name) && b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('.bp3-toast') === t; }), NAMES.doc));
   await shot('after-delete');
   // with the page title gone, the text file can go too
   await evalIn((uid) => window.roamAlphaAPI.data.page.delete({ page: { uid } }), titleUid);
