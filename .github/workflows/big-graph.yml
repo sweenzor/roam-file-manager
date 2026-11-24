@@ -24,6 +24,12 @@ on:
       files:
         description: How many of the blocks hold a file link
         default: '2000'
+      graph_kind:
+        description: "Which graph: auto (a local one when the account can make one), local or hosted"
+        default: auto
+      hosted_graph:
+        description: The hosted graph to fill when it is a hosted one
+        default: vault-spike-hosted
       clean_only:
         description: Only delete what an earlier run left in the hosted test graph
         type: boolean
@@ -102,6 +108,8 @@ jobs:
           ROAM_PASSWORD: ${{ secrets.ROAM_PASSWORD }}
           BLOCKS: ${{ inputs.blocks || '20000,100000,300000' }}
           FILES: ${{ inputs.files || '2000' }}
+          GRAPH_KIND: ${{ inputs.graph_kind || 'auto' }}
+          ROAM_GRAPH: ${{ inputs.hosted_graph || 'vault-spike-hosted' }}
           # a push only checks that the hosted test graph opens and holds nothing of an earlier run:
           # filling it is for a run by hand
           CLEAN_ONLY: ${{ (github.event_name == 'push' || inputs.clean_only) && '1' || '' }}

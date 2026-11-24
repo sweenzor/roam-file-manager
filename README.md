@@ -112,11 +112,15 @@ picture (for a video, a frame of it), its type and size, and its mentions.
 | --- | --- |
 | **A file with 0 mentions** | It's in none of your blocks, so nothing in your graph changes. |
 | **A file that blocks still mention** | The file goes, and those blocks are left as they are: they'll show a broken image or a dead link. The confirmation warns you first, and you have to click the red button. **Enter** doesn't confirm. |
+| **A file with 0 mentions that your graph still uses** | It's kept. Just before deleting, File Manager looks at your graph once more: a file that a block mentions by now, that one of Roam's PDF pages still shows, or that a block keeps outside its text (a picture in a drawing, for one) is not deleted, and a message says which files were kept and why. If the graph can't be checked, nothing is deleted. |
 
 ![The confirmation for three files that blocks still mention, with a red warning that deleting cannot be undone and that the blocks will be left with broken images and links](https://raw.githubusercontent.com/sweenzor/roam-file-manager/bfa077c8eac3dbd07df14fb28c3d7000a03a1956/docs/images/delete-warning.png)
 
 In the confirmation you can hover over a picture or video to see or play it, and click a mentions count to
 look at the blocks first: the confirmation closes, nothing is deleted and your ticks stay.
+
+Once you've confirmed, the confirmation stays until the delete has finished. Leaving **Files** meanwhile
+stops it before the next file.
 
 ## Local graphs
 
@@ -140,6 +144,8 @@ as in any graph.
 In a hosted graph, Roam doesn't let an extension list the graph's stored files. File Manager finds files by reading your
 blocks, when Roam starts and every ten minutes after that, and remembers on your device every file it has
 seen there. A file shows 0 mentions when it was seen in a block and no block holds it any more.
+
+A PDF that one of Roam's PDF pages still shows isn't counted as unused, even when no block mentions it.
 
 So a file that lost its block before File Manager was installed doesn't appear, and neither does one
 that was uploaded and removed again within a few minutes. In a [local graph](#local-graphs) no unused

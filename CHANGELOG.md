@@ -12,3 +12,5 @@
 - Local graphs: Files lists and shows the files a local graph's blocks hold. Deleting, and finding unused files, is for hosted graphs only: Roam's extension API can't list or delete a local graph's files.
 - Deleting goes through `roamAlphaAPI.file.delete` only, and only for files stored right in this graph's own folder. After each delete Roam's file storage is asked whether the file is gone: a file it still has is reported as not deleted.
 - The delete confirmation: Enter on a focused button presses that button (Cancel cancels), a held Enter key doesn't confirm, and unloading the extension closes the confirmation.
+- Before a file with 0 mentions is deleted, the graph is checked once more: block text, Roam's PDF pages (`:pdf/url`) and block props (where a drawing keeps its pictures), but not the image sizes Roam leaves in props. A file still in use is kept, with a message saying why. If the check fails nothing is deleted. A PDF that a PDF page still shows isn't listed as unused.
+- The delete confirmation can't be closed while its delete runs, and leaving Files ends the delete before its next file.

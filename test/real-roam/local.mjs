@@ -179,6 +179,11 @@ try {
   check('the trash stays off', await trashOff());
   check('every file is still on the computer', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
   await shot('local-after-block-deleted');
+  // For the record, not a check: does Roam's public file.delete work in a local graph yet? (On 2026-11-24
+  // Roam said a fix was on its way. The file is one no block holds any more, in a graph made for this run.)
+  const probe = await evalIn(async (url) => { try { await window.roamAlphaAPI.file.delete({ url }); return 'resolved'; } catch (e) { return `threw: ${String(e?.message ?? e).slice(0, 160)}`; } }, urls.dropped);
+  await sleep(1500);
+  log('file.delete in a local graph:', probe, '; the desktop app then answers', await stored(urls.dropped), 'for the file');
 } catch (e) {
   failed = e.message.split('\n')[0];
   log('ERROR', e.message);

@@ -644,19 +644,21 @@ export class FilesView {
       this.el.removeAttribute('inert');
       this.hidePreview(); overlay.remove(); document.removeEventListener('keydown', key, true);
     };
+    // once a delete runs, nothing closes the dialog but its end (or leaving the view, which ends the batch)
+    const cancel = () => { if (!going) close(); };
     const go = async () => {
       // once only: a second Enter or click while the first delete runs does nothing, nor does one after unload
       if (going || !overlay.isConnected) return;
       going = true;
-      confirm.disabled = true;
+      confirm.disabled = true; cancelBtn.disabled = true;
       // nothing stays ticked afterwards, including a file that could not be deleted
       try { await this.actions.deleteFiles(rows); } finally { for (const r of rows) this.selected.delete(r.key); this.refresh(); close(); }
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
+      if (e.key === 'Escape') { e.stopPropagation(); cancel(); return; }
       if (e.key !== 'Enter') return;
       // a held key repeats: it neither opens the dialog and confirms it at once, nor clicks anything behind it
-      if (e.repeat) { e.preventDefault(); e.stopPropagation(); return; }
+      if (e.repeat || going) { e.preventDefault(); e.stopPropagation(); return; }
       // a focused button in the dialog answers Enter itself (Cancel cancels), except Yes for files still in blocks
       const t = e.target as HTMLElement | null;
       if (t && overlay.contains(t) && t.closest('button, a, input') && !(warning && t.closest('.confirm-button'))) return;
@@ -664,8 +666,9 @@ export class FilesView {
       if (!warning) go();
     };
     const confirm = h('button', { class: 'bp3-button confirm-button bp3-intent-danger', onClick: go }, h('span', {}, `Yes, delete ${noun}`), !warning && icon('key-enter'));
+    const cancelBtn = h('button', { class: 'bp3-button bp3-minimal cancel-button', onClick: cancel }, h('span', {}, 'Cancel'), icon('key-escape'));
     overlay = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-overlay bp3-overlay-open bp3-overlay-scroll-container' },
-      h('div', { class: 'bp3-overlay-backdrop', onClick: close }),
+      h('div', { class: 'bp3-overlay-backdrop', onClick: cancel }),
       h('div', { class: 'bp3-dialog-container bp3-overlay-content' },
         h('div', { class: 'bp3-dialog rm-modal-dialog rm-modal-dialog--confirmation-with-content', role: 'dialog' },
           h('div', { class: 'confirmation-content-dialog' },
@@ -681,10 +684,10 @@ export class FilesView {
                   h('div', { class: 'bp3-text-overflow-ellipsis' }, r.name),
                   h('div', { class: 'bp3-text-small delete-all-dialog-secondary-text' }, [r.ext.toUpperCase(), formatSize(r.size)].filter(Boolean).join(', ')),
                   // the same count as in the list. A click shows the blocks: the dialog goes away, the ticks stay
-                  h('div', { class: `rm-clickable-pill${pillLevel(m)}`, onClick: () => { if (m) { close(); this.actions.openMentions(r); } } }, String(m)));
+                  h('div', { class: `rm-clickable-pill${pillLevel(m)}`, onClick: () => { if (m && !going) { close(); this.actions.openMentions(r); } } }, String(m)));
               }))),
             h('div', { class: 'flex-h-box confirmation-content-buttons' },
-              h('button', { class: 'bp3-button bp3-minimal cancel-button', onClick: close }, h('span', {}, 'Cancel'), icon('key-escape')),
+              cancelBtn,
               confirm))))));
     this.closeDialog?.();
     this.closeDialog = close;

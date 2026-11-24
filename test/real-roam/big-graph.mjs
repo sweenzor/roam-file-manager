@@ -152,6 +152,23 @@ const fill = (count, files, seed) => evalIn(async ([count, files, seed, graph, p
   }
   return { made, madeFiles, how, why };
 }, [count, files, seed, GRAPH, PREFIX]);
+/** Gives some of the file blocks props, as a graph in use has: on PROPS_SIZES of them the saved size of
+ *  a resized picture (under the file's own address), on PROPS_DRAWINGS a file's address inside a nested
+ *  map, the way a drawing keeps its pictures. */
+const PROPS_SIZES = +(process.env.PROPS_SIZES || 1000), PROPS_DRAWINGS = +(process.env.PROPS_DRAWINGS || 100);
+const addProps = () => evalIn(async ([sizes, drawings]) => {
+  const api = window.roamAlphaAPI, d = api.data;
+  const rows = d.q('[:find ?uid ?s :where [?b :block/string ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/uid ?uid]]');
+  let made = 0;
+  for (const [uid, text] of rows.slice(0, sizes + drawings)) {
+    const url = text.match(/https:\/\/firebasestorage[^\s)}]+/)?.[0];
+    if (!url) continue;
+    const props = made < sizes ? { 'image-size': { [url]: { width: 320, height: 200 } } } : { excalidraw: { files: { f1: { id: 'f1', mimeType: 'image/png', dataURL: url } } } };
+    await (d.block?.update ?? api.updateBlock)({ block: { uid, props } });
+    if (++made % 50 === 0) await new Promise((r) => setTimeout(r));
+  }
+  return { made, withProps: d.q('[:find (count ?b) . :where [?b :block/props]]') ?? 0 };
+}, [PROPS_SIZES, PROPS_DRAWINGS]);
 const countBlocks = () => evalIn(() => { const t = performance.now(); const n = window.roamAlphaAPI.data.q('[:find (count ?b) . :where [?b :block/string]]') ?? 0; return { n, ms: Math.round(performance.now() - t) }; });
 
 // ---------- a hosted graph: saving, and taking the pages out again ----------
@@ -286,6 +303,15 @@ const timeQueries = () => evalIn(async () => {
     for (let i = 0; i < uids.length; i += 100) { const t = performance.now(); d.pull_many(BLOCK, uids.slice(i, i + 100).map((u) => [':block/uid', u])); longest = Math.max(longest, performance.now() - t); await new Promise((r) => setTimeout(r)); }
     out['as the extension does it: reading the blocks'] = { ms: Math.round(performance.now() - t0), stall: Math.round(longest), rows: uids.length };
   } catch (e) { out['as the extension does it: reading the blocks'] = { error: String(e?.message ?? e).slice(0, 120) }; }
+  // the last look before a delete of a file with 0 mentions: PDF pages, then block props
+  await safe('before a delete: PDF pages (:pdf/url)', async () => d.q('[:find [?u ...] :where [_ :pdf/url ?u]]'));
+  const PROPS = `[:find [?uid ...] :where [?b :block/props ?p] [(str ?p) ?s] [(clojure.string/includes? ?s "${NEEDLE}")] [?b :block/uid ?uid]]`;
+  await safe('before a delete: which blocks hold a file in their props', () => d.async.q(PROPS));
+  try {
+    const uids = d.q(PROPS); let longest = 0; const t0 = performance.now();
+    for (let i = 0; i < uids.length; i += 100) { await new Promise((r) => setTimeout(r)); const t = performance.now(); d.pull_many('[:block/props]', uids.slice(i, i + 100).map((u) => [':block/uid', u])); longest = Math.max(longest, performance.now() - t); }
+    out['before a delete: reading those props'] = { ms: Math.round(performance.now() - t0), stall: Math.round(longest), rows: uids.length };
+  } catch (e) { out['before a delete: reading those props'] = { error: String(e?.message ?? e).slice(0, 120) }; }
   if (d.backend?.q) await safe("Roam's backend (off the window's thread): which blocks", () => d.backend.q(FIND));
   await safe('before: one query for everything (async.q)', () => d.async.q(Q));
   await safe('one query for everything (q)', async () => d.q(Q));
@@ -394,7 +420,8 @@ try {
   serve(DIST);
   await launchRoam();
   await signIn(EMAIL, PASSWORD);
-  if (KIND === 'hosted') hosted = true;
+  // the clean-up check is about the hosted test graph, whatever kind of graph a fill would use
+  if (KIND === 'hosted' || process.env.CLEAN_ONLY) hosted = true;
   else {
     try { await openLocalGraph(); } catch (e) {
       if (KIND === 'local') throw e;
@@ -430,7 +457,7 @@ try {
   log('extension loaded; API:', await apiNow());
 
   const t0 = Date.now();
-  let have = (await countBlocks()).n, filesLeft = FILES, seed = 1, rate = 0;
+  let have = (await countBlocks()).n, filesLeft = FILES, seed = 1, rate = 0, propsDone = false;
   for (const size of hosted ? [...new Set(SIZES.map((n) => Math.min(n, HOSTED_MAX)))] : SIZES) {
     while (have < size) {
       if ((Date.now() - t0) / 60000 > FILL_MINUTES) break;
@@ -451,6 +478,13 @@ try {
     const c = await countBlocks();
     have = c.n;
     if (hosted) log('saved to the server after', await waitSynced(20), 'ms');
+    if (!propsDone) {
+      propsDone = true;
+      const p = await addProps();
+      if (hosted) await waitSynced(20);
+      log('props on', p.made, 'file blocks;', p.withProps, 'blocks in the graph have props');
+      notes.push(`${PROPS_SIZES.toLocaleString('en')} of the file blocks have a saved image size in their props and ${PROPS_DRAWINGS} hold a file's address there as a drawing does (${p.withProps.toLocaleString('en')} blocks with props in the graph).`);
+    }
     log('measuring at', have, 'blocks;', FILES - filesLeft, 'file links; counting them took', c.ms, 'ms');
     await sleep(5000);
     await measure(have);

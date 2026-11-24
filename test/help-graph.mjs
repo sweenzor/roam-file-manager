@@ -296,14 +296,21 @@ await page.click('.rfm-view .rfm-grid-button');
 check('the button goes back to the list', await page.evaluate(() => !document.querySelector('.rfm-view .rfm-tile') && document.querySelectorAll('.rfm-view .rm-pages-row:not(.rm-pages-row-header)').length > 0));
 await page.click('.rfm-view [data-col="added"] .sort-button.desc');
 
-// the last check before a delete reads every text in the graph
+// the last look before a delete: PDF pages by their attribute, and the blocks whose props hold a file
 const wide = await page.evaluate(async () => {
-  const q = (s) => window.roamAlphaAPI.data.async.q(s);
-  const t = performance.now();
-  const n = (await q('[:find ?s :where [_ ?a ?v] [(not= ?a :block/props)] [(str ?v) ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")]]')).length;
-  return { n, ms: Math.round(performance.now() - t) };
+  const d = window.roamAlphaAPI.data;
+  let t = performance.now();
+  const pdf = (await d.async.q('[:find [?u ...] :where [_ :pdf/url ?u]]')).length;
+  const pdfMs = Math.round(performance.now() - t);
+  t = performance.now();
+  const uids = await d.async.q('[:find [?uid ...] :where [?b :block/props ?p] [(str ?p) ?s] [(clojure.string/includes? ?s "firebasestorage.googleapis.com")] [?b :block/uid ?uid]]');
+  const propsMs = Math.round(performance.now() - t);
+  t = performance.now();
+  const blocks = d.pull_many('[:block/props]', uids.map((u) => [':block/uid', u]));
+  const sizesOnly = blocks.filter((b) => Object.keys(b[':block/props']).every((k) => k === ':image-size')).length;
+  return { pdf, pdfMs, props: uids.length, propsMs, pullMs: Math.round(performance.now() - t), sizesOnly };
 });
-check('the whole-graph check before a delete runs', wide.n > 100, `${wide.n} texts in ${wide.ms} ms`);
+check('the look before a delete finds the help graph\'s PDF page and the blocks with a file in their props', wide.pdf >= 1 && wide.props > 50, JSON.stringify(wide));
 
 // Roam's own navigation closes the list
 await page.click('.rm-left-sidebar__daily-notes');
