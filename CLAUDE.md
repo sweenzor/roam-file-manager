@@ -26,9 +26,9 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 
 - `src/files.ts`: pure functions. Finds Roam-hosted file URLs in block text, groups them by storage path, sorting, size format.
 - `src/scan.ts`: finds the blocks whose text has a firebasestorage URL. Which blocks: one datalog query for their uids, the only step that reads every block's text. The blocks themselves: `pull_many`, 100 at a time with a pause between.
-- `src/local.ts`, `src/transit.ts`: a local graph's files through Roam's desktop app (list, delete), Transit as Roam's page speaks it.
+- Local graphs: only what the blocks hold is listed (sizes read from the desktop app's local-asset server, the address the page draws from); nothing can be ticked or deleted. Roam's Depot review of #1557 (2026-11-24) asked to drop the desktop app's private `roam-electron-*` messages (the old `src/local.ts`, `src/transit.ts`, in git history before the fix); don't bring them back unless Roam approves.
 - `src/store.ts`: IndexedDB `roam-file-manager`: `meta` (size, upload time, original name from Firebase Storage metadata) and `seen` (files found in blocks, per graph).
-- `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan.
+- `src/app.ts`: scan + store + view. Delete goes through `roamAlphaAPI.file.delete` after a fresh scan. A delete counts only when that resolves, or when storage answers 403/404 for the file's metadata; never by matching error text.
 - `src/view.ts`: the table. `videoStill(row, cls)` / `videoStillUrl(row)` give a video's still (first frame, decoded once, kept in IndexedDB; the icon when this browser has no decoder, e.g. HEVC on Linux): use them wherever a video needs a picture. Plain DOM with Roam's own All Pages classes (`rm-all-pages`, `rm-pages-row`, ...), virtual rows. `state.grid` draws the same rows as tiles (thumbnail view): same selection and virtual drawing, several files to a line. A video's tile is its still alone until the pointer is on it or it is clicked; then it gets the browser's controls and plays in place (an idle `<video controls>` gets a loading circle drawn over it for good in Roam's desktop app). Tiles have no columns, so the header row is hidden and the toolbar carries a select-all box by the trash and one sort button beside the search. That button and its menu copy Roam's own card grid, the extension browser in Settings > Roam Depot (measured signed in, 2026-11-22): `button.bp3-button.bp3-icon-standard.bp3-minimal.bp3-icon-sort` right after the search input, opening `ul.bp3-menu` with two items per field ("Downloads (high to low)", "Created (newest first)", "Alphabetical (A to Z)"), `li.bp3-menu-divider` between fields, the one in use `bp3-active bp3-intent-primary`.
 - `src/index.ts`: `onload`/`onunload`. Registers the view with `roamAlphaAPI.ui.mainWindow.registerComponent(id, Component)` and opens it with `openComponent(id)`; adds the left sidebar row.
 
@@ -42,9 +42,9 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 ## Local graphs (measured, Roam desktop 0.0.42, 2026-11-23)
 
 - An upload to a local graph (`#/offline/<name>`, writable on a paid account) is written as `local-asset://<graph>/<10-char id>.<ext>` (images `![](…)`, pdf/audio/video `{{[[pdf]]: …}}`, other files the bare address: no original name is kept anywhere). The desktop app stores it in `~/.config/Roam Research/local-graph-uploads/<graph>/uploads/` and serves it at `http://127.0.0.1:<server-port, 3333>/local-asset/<graph>/<file>` with CORS `*` (no Content-Length); Roam's blocks draw from there, canvas reads of pictures and video frames work.
-- `roamAlphaAPI.file.delete` throws "delete-file is not available for offline graphs"; `file.get` asserts. Roam's own Settings > Attachments lists and deletes through the desktop app's main process: `window.postMessage({msgType: 'roam-electron-renderer-message-to-main', dataInTransit: <transit>})`, answered by a `roam-electron-main-message-to-renderer` message. `src/local.ts` asks the same two things (`:roam.files/graph-files` for `{:relemma/graph-name g}`: name, size, upload-t, mime-type, download-url; mutation `roam.electron/delete-graph-file` with the file id: `{:roam.files/deleted true|false}`). Recorded answers in `test/transit.test.ts`.
+- `roamAlphaAPI.file.delete` throws "delete-file is not available for offline graphs"; `file.get` asserts. Roam's own Settings > Attachments lists and deletes through the desktop app's main process (private `roam-electron-*` window messages); the extension no longer uses them (see Architecture).
 - In the browser, `file.upload` in a local graph throws: only the desktop app has local files. `src/scan.ts` looks for both address kinds in a local graph, only firebasestorage in a hosted one.
-- `test/real-roam/local.mjs` (second step of Real Roam) makes a new local graph on the runner each run.
+- `test/real-roam/local.mjs` (second step of Real Roam) makes a new local graph on the runner each run, and checks listing and that nothing can be ticked or deleted.
 
 ## Reading a large graph (measured in the help graph: 13,495 blocks, 541 with a file)
 
@@ -60,7 +60,7 @@ node test/help-graph.mjs    # built extension in Roam's public help graph, headl
 ## Rules
 
 - Follow Roam's existing UI patterns and class names. No invented text: no empty states, hints or tooltips.
-- Never delete a file without the user confirming. A file that blocks still mention can be deleted (Matthew, 2026-11-22), but only behind the warning in the confirmation (broken images, can't be undone), and Enter must not confirm it.
+- Never delete a file without the user confirming. A file that blocks still mention can be deleted (Matthew, 2026-11-22), but only behind the warning in the confirmation (broken images, can't be undone), and Enter must not confirm it. In the confirmation a focused button answers Enter itself, a held (repeated) Enter does nothing, the confirm runs once, and `destroy()` closes the dialog.
 - The help-graph test must never confirm a delete: those are Roam's own files.
 - Waiting (Matthew, 2026-11-22): something custom for this view, not Roam's toast. A box with a progress bar in the middle of the view, the list dimmed and locked under it, while the first open fetches sizes (`FilesView.progress`), and while a sort predicted to take over 250 ms runs. No text in it.
 - Words come from Roam's All Pages: a file's uses are its Mentions. The count opens the blocks in the right sidebar and the list stays open, as All Pages does.
