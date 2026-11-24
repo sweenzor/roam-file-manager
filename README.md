@@ -158,6 +158,11 @@ Finding the files means looking through the text of every block, and Roam waits 
 Measured in Roam's desktop app with 2,000 files: opening **Files** holds Roam for about 0.2 seconds on
 a graph of 20,000 blocks, 0.6 seconds at 100,000 and 0.8 seconds at 300,000. It happens when you open
 **Files**, and every ten minutes at a moment when you aren't typing or clicking.
+
+The look at your graph just before a delete was measured the same way on 300,000 blocks, 1,100 of them
+keeping something outside their text: 0.2 seconds for the blocks' text, a millisecond for the PDF
+pages, and 0.5 seconds for what blocks keep outside their text, read a hundred blocks at a time. Roam
+is held for 0.2 seconds at the longest.
 </details>
 
 <details>
