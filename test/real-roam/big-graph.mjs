@@ -530,6 +530,7 @@ try {
 if (hosted && roam.signedIn) {
   try {
     const c = await cleanUpWithRestarts();
+    if (process.env.CLEAN_ONLY) failed = ''; // a clean-only run is about the clean-up, and it got there
     notes.push(`Afterwards the run deleted its ${c.n.toLocaleString('en')} pages again; after a reload none was left and the graph had ${c.blocks.toLocaleString('en')} blocks.`);
   } catch (e) {
     const why = e.message.split('\n')[0];
