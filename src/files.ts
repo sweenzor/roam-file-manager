@@ -74,6 +74,13 @@ export const isOwnKey = (key: string, graph: string) => {
   return key.startsWith(prefix) && file.length > 0 && !file.includes('/') && file !== '.' && file !== '..';
 };
 
+/** The same for a local graph `graph`, whose uploads Roam's desktop app keeps on the computer: local-asset/<graph>/<file>. */
+export const isOwnLocalKey = (key: string, graph: string) => {
+  const prefix = `local-asset/${graph}/`;
+  const file = key.slice(prefix.length);
+  return key.startsWith(prefix) && file.length > 0 && !/[/\\%]/.test(file) && file !== '.' && file !== '..';
+};
+
 export const isEncrypted = (key: string) => key.toLowerCase().endsWith('.enc');
 
 export function extOf(key: string): string {

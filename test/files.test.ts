@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRefs, storageKey, srcOf, localId, isOwnKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning, countText } from '../src/files.ts';
+import { findRefs, storageKey, srcOf, localId, isOwnKey, isOwnLocalKey, collect, compare, formatSize, kindOf, restOf, type Row, inUseWarning, countText } from '../src/files.ts';
 
 const U = (id: string, g = 'g') => `https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${g}%2F${id}?alt=media&token=t-${id}`;
 
@@ -120,4 +120,10 @@ test('a local address names a graph and a file, nothing else', () => {
 test('own files are the ones right in the graph\'s folder', () => {
   assert.equal(isOwnKey('imgs/app/g/a.png', 'g'), true);
   for (const k of ['imgs/app/g2/a.png', 'imgs/app/g/../h/a.png', 'imgs/app/g/sub/a.png', 'imgs/app/g/', 'imgs/app/g/..', 'x/imgs/app/g/a.png']) assert.equal(isOwnKey(k, 'g'), false, k);
+});
+
+test('a local graph\'s own files are local-asset files of that graph, never a hosted graph\'s of the same name', () => {
+  assert.equal(isOwnLocalKey('local-asset/g/a.png', 'g'), true);
+  for (const k of ['imgs/app/g/a.png', 'local-asset/g2/a.png', 'local-asset/g/sub/a.png', 'local-asset/g/..', 'local-asset/g/', 'local-asset/g/a%2Fb.png', 'x/local-asset/g/a.png']) assert.equal(isOwnLocalKey(k, 'g'), false, k);
+  assert.equal(isOwnKey('local-asset/g/a.png', 'g'), false);
 });

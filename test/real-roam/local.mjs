@@ -1,15 +1,15 @@
 // End-to-end run of the built extension in a LOCAL graph of Roam's real desktop app (Linux build,
 // under Xvfb), signed in to the test account. In a local graph Roam's desktop app keeps uploads on the
-// computer (local-asset://<graph>/<id>.<ext>). Roam's public API can't list or delete them
-// (roamAlphaAPI.file.delete refuses local graphs), so File Manager lists what the blocks hold and
-// deletes nothing there.
+// computer (local-asset://<graph>/<id>.<ext>). Roam's public API can't list them, so File Manager finds
+// them in blocks as in a hosted graph, and deletes them through roamAlphaAPI.file.delete (which works in
+// local graphs since Roam's fix of 2026-11-24).
 //
 //   DISPLAY=:99 ROAM_EMAIL=… ROAM_PASSWORD=… node test/real-roam/local.mjs
 //
 // Makes a fresh local graph by its address (#/offline/<name>; every CI runner starts without one),
 // uploads three files to it and checks: they are listed with type, size and date, with their pages and
-// mentions; the pictures are drawn; nothing can be ticked or deleted; a file whose block is deleted
-// leaves the list, and stays on the computer. Writes
+// mentions; the pictures are drawn; a file whose block is deleted shows 0 mentions and is deleted from
+// the computer only after the confirmation; a hosted graph's file linked there can't be ticked. Writes
 // RESULTS.md and PNG screenshots to $OUT/local.
 //
 // Credentials as in run.mjs: from the environment only, never logged, no picture before the graph is open.
@@ -148,7 +148,7 @@ try {
   check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`), `${kept?.page}, ${kept?.mentions}`);
   const today = await evalIn(() => window.roamAlphaAPI.util.dateToPageTitle(new Date()));
   check('shows the date added in Roam\'s date format', kept?.added === today, kept?.added);
-  check('nothing can be ticked in a local graph: Roam\'s API can\'t delete its files', !kept?.ticks && !doc?.ticks && !dropped?.ticks);
+  check('the local graph\'s own files can be ticked', kept?.ticks && doc?.ticks && dropped?.ticks);
   await waitFor('the thumbnails', () => evalIn((v) => [...document.querySelectorAll(`${v} img.rfm-thumb`)].filter((i) => i.complete && i.naturalWidth > 0).length >= 2, VIEW), 15000).then(
     () => check('the pictures are drawn from Roam\'s desktop app', true), () => check('the pictures are drawn from Roam\'s desktop app', false));
   await evalIn(([v, name]) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name).querySelector('.rm-clickable-pill').click(), [VIEW, nameOf(urls.kept)]);
@@ -168,22 +168,44 @@ try {
   await evalIn((v) => document.querySelector(`${v} .rfm-grid-button`).click(), VIEW);
   await sleep(500);
 
-  // ---- a file whose block is deleted leaves the list; nothing is deleted from the computer ----
+  // ---- a file whose block is deleted has 0 mentions, and can be deleted through Roam's own file.delete ----
   await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks.dropped);
+  // a file of a hosted graph of the same name, linked here: it is not this local graph's to delete
+  const FOREIGN = 'abcdefghij.png';
+  await evalIn(([pageUid, graph, name]) => window.roamAlphaAPI.data.block.create({ location: { 'parent-uid': pageUid, order: 'last' }, block: { string: `![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2F${graph}%2F${name}?alt=media&token=none)` } }), [made.pageUid, GRAPH, FOREIGN]);
   await sleep(1000);
   await closeAllFiles();
   await openAllFiles();
-  await waitFor('the other files', async () => !!(await rowOf(nameOf(urls.kept))), 20000).catch(() => {});
+  await waitFor('the file without a block', async () => (await rowOf(nameOf(urls.dropped)))?.mentions === '0', 20000).catch(() => {});
   list = await rows();
-  check('a file no block holds any more leaves the list', !list.some((r) => r.name === nameOf(urls.dropped)) && list.some((r) => r.name === nameOf(urls.kept)), list.map((r) => r.name).join(', '));
-  check('the trash stays off', await trashOff());
-  check('every file is still on the computer', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
+  log('rows', JSON.stringify(list));
+  check('a file no block holds any more is listed with 0 mentions', (await rowOf(nameOf(urls.dropped)))?.mentions === '0' && list.some((r) => r.name === nameOf(urls.kept)), list.map((r) => `${r.name} ${r.mentions}`).join(', '));
+  check('a hosted graph\'s file linked in the local graph can\'t be ticked', (await rowOf(FOREIGN))?.ticks === false, JSON.stringify(await rowOf(FOREIGN)));
+  check('the trash is off until a file is ticked', await trashOff());
+  check('the deleted block did not delete the file', (await stored(urls.dropped)) === 200);
   await shot('local-after-block-deleted');
-  // For the record, not a check: does Roam's public file.delete work in a local graph yet? (On 2026-11-24
-  // Roam said a fix was on its way. The file is one no block holds any more, in a graph made for this run.)
-  const probe = await evalIn(async (url) => { try { await window.roamAlphaAPI.file.delete({ url }); return 'resolved'; } catch (e) { return `threw: ${String(e?.message ?? e).slice(0, 160)}`; } }, urls.dropped);
+  await evalIn(([v, name]) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name).querySelector('input[type=checkbox]').click(), [VIEW, nameOf(urls.dropped)]);
+  check('trash is on for the ticked file', !(await trashOff()));
+  const dialogOpen = () => evalIn(() => !!document.querySelector('.confirmation-content-dialog'));
+  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await waitFor('the confirmation', dialogOpen, 5000);
+  const dialog = await evalIn(() => document.querySelector('.confirmation-content-dialog').innerText);
+  check('asks before deleting, naming the file', /permanently delete 1 file\?/.test(dialog) && dialog.includes(nameOf(urls.dropped)), dialog.split('\n')[0]);
+  await shot('local-delete-confirm');
+  await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
   await sleep(1500);
-  log('file.delete in a local graph:', probe, '; the desktop app then answers', await stored(urls.dropped), 'for the file');
+  check('Cancel deletes nothing', (await stored(urls.dropped)) === 200 && !!(await rowOf(nameOf(urls.dropped))));
+  await roam.page.click(`${VIEW} .bp3-icon-trash`);
+  await waitFor('the confirmation', dialogOpen, 5000);
+  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
+  await waitFor('the confirmation to close at the end of the delete', async () => !(await dialogOpen()), 30000);
+  await waitFor('the deleted file to leave the list', async () => !(await rowOf(nameOf(urls.dropped))), 30000).catch(() => {});
+  check('confirming deletes the file from the computer, through roamAlphaAPI.file.delete', (await stored(urls.dropped)) === 404 && !(await rowOf(nameOf(urls.dropped))), `the desktop app answers ${await stored(urls.dropped)}`);
+  check('the files still in blocks are untouched', (await stored(urls.kept)) === 200 && (await stored(urls.doc)) === 200 && !!(await rowOf(nameOf(urls.kept))));
+  await closeAllFiles();
+  await openAllFiles();
+  await sleep(2000);
+  check('the deleted file stays gone when Files is opened again', !(await rowOf(nameOf(urls.dropped))) && !!(await rowOf(nameOf(urls.kept))));
 } catch (e) {
   failed = e.message.split('\n')[0];
   log('ERROR', e.message);

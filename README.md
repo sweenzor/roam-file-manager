@@ -125,8 +125,8 @@ stops it before the next file.
 ## Local graphs
 
 In a local graph Roam's desktop app keeps the files on your computer rather than in Roam's file storage.
-File Manager lists the files your blocks hold there, with their mentions, sizes, thumbnails and previews,
-as in any graph.
+File Manager lists them with their mentions, sizes, thumbnails and previews, and finds and deletes unused
+ones, as in any graph. This needs Roam's desktop app: a browser doesn't have a local graph's files.
 
 ![The Files list in a local graph: the kitchen files the blocks hold, the pictures listed by the names Roam stored them under](https://raw.githubusercontent.com/sweenzor/roam-file-manager/bfa077c8eac3dbd07df14fb28c3d7000a03a1956/docs/images/local.png)
 
@@ -134,22 +134,21 @@ as in any graph.
 | --- | --- |
 | **Name** | Roam keeps a local file under the name it stored it as, not the name it was uploaded with, so that's the name listed, as in Roam's **Settings > Attachments**. |
 | **Mentions, sort, search, thumbnails, previews** | As in any graph. |
-| **0 mentions and deleting** | Not in a local graph. Roam's extension API can't list a local graph's stored files or delete one, so a file no block holds isn't listed, and nothing can be ticked. Use Roam's **Settings > Attachments** to delete them. |
+| **0 mentions and deleting** | As in any graph: a file File Manager has seen in a block, and that no block holds any more, shows 0 mentions, and a deleted file is removed from your computer. A file that lost its block before File Manager was installed isn't listed: Roam's **Settings > Attachments** shows those. |
 
 ## Good to know
 
 <details>
 <summary><b>Which unused files it can find</b></summary>
 
-In a hosted graph, Roam doesn't let an extension list the graph's stored files. File Manager finds files by reading your
+Roam doesn't let an extension list a graph's stored files. File Manager finds files by reading your
 blocks, when Roam starts and every ten minutes after that, and remembers on your device every file it has
 seen there. A file shows 0 mentions when it was seen in a block and no block holds it any more.
 
 A PDF that one of Roam's PDF pages still shows isn't counted as unused, even when no block mentions it.
 
 So a file that lost its block before File Manager was installed doesn't appear, and neither does one
-that was uploaded and removed again within a few minutes. In a [local graph](#local-graphs) no unused
-files are found.
+that was uploaded and removed again within a few minutes.
 </details>
 
 <details>

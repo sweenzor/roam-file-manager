@@ -326,7 +326,7 @@ async function main() {
   if (!stored.every((s) => s === 200)) throw new Error(`a demo file went missing while the pictures were taken: ${stored.join(' ')}`);
 }
 
-/** 10. A local graph: Roam's desktop app keeps its files on the computer, and Files lists the ones blocks hold.
+/** 10. A local graph: Roam's desktop app keeps its files on the computer, and Files lists them as in any graph.
  *  A new local graph, made by its address; it lives only on this runner. */
 const LOCAL_GRAPH = 'kitchen-renovation';
 async function local() {
@@ -351,14 +351,19 @@ async function local() {
   if (await evalIn(() => [...document.querySelectorAll('body *')].some((e) => e.children.length === 0 && e.textContent.trim() === 'Roam Help'))) throw new Error('Roam Help is still open');
   const made = await makeDemo();
   if (!Object.values(made.urls).every((u) => u.startsWith('local-asset://'))) throw new Error('the local graph\'s uploads are not local-asset:// files');
+  // Files sees every file in its block first, so that the ones whose blocks go are found as unused
+  await evalIn(() => document.querySelectorAll('.bp3-toast .bp3-icon-cross, .bp3-toast button[aria-label="Close"]').forEach((b) => (b.closest('button') ?? b).click()));
+  await openFiles();
+  await waitFor('every demo file in the list', async () => (await rows()).length === made.names.length, 30000);
+  await closeFiles();
   for (const name of UNUSED) for (const uid of made.blocks[name]) await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), uid);
   await evalIn(async (title) => { const api = window.roamAlphaAPI; const uid = api.data.q('[:find ?u . :in $ ?t :where [?p :node/title ?t] [?p :block/uid ?u]]', title); if (uid) await api.data.page.delete({ page: { uid } }); }, UNUSED_PAGE);
   await sleep(1500);
   // Roam's own banner about backing up local graphs, closed as a user would
   await evalIn(() => document.querySelectorAll('.bp3-toast .bp3-icon-cross, .bp3-toast button[aria-label="Close"]').forEach((b) => (b.closest('button') ?? b).click()));
   await openFiles();
-  // Roam's API can't list a local graph's stored files: the files whose blocks were deleted aren't listed
-  await waitFor('every demo file still in a block in the list, with sizes', async () => { const list = await rows(); return list.length === made.names.length - UNUSED.length && list.every((r) => r.size); }, 30000);
+  // the files whose blocks were deleted are listed with 0 mentions, as in a hosted graph
+  await waitFor('every demo file in the list, with sizes, two of them with 0 mentions', async () => { const list = await rows(); return list.length === made.names.length && list.every((r) => r.size) && list.filter((r) => r.mentions === '0').length === UNUSED.length; }, 30000);
   await waitFor('the pictures in the list', () => picturesLoaded(VIEW), 30000);
   await waitFor('the video\'s still', () => evalIn((v) => !!document.querySelector(`${v} .rfm-still img`), VIEW), 30000);
   await parkMouse();

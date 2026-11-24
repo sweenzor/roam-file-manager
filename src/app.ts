@@ -4,7 +4,7 @@ import { scanGraph, keysInUse, pdfKeys } from './scan.ts';
 import { storageKey } from './files.ts';
 import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, localMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, srcOfRow, type ViewState } from './view.ts';
-import { kindOf, extOf, storedName, isLocal, isOwnKey } from './files.ts';
+import { kindOf, extOf, storedName, isLocal, isOwnKey, isOwnLocalKey } from './files.ts';
 
 export const VIEW_ID = 'roam-file-manager';
 const api = () => (window as any).roamAlphaAPI;
@@ -13,6 +13,10 @@ const graphName = (): string => api().graph.name;
 const isLocalGraph = () => api().graph.type === 'offline';
 /** Roam's desktop app: the only place a local graph's files can be read from. */
 const isDesktop = () => navigator.userAgent.includes('Electron');
+/** Whether `key` is a file this graph stores itself. Only those can be unused or deleted: a file pasted
+ *  from another graph belongs to that graph. A hosted graph's are in imgs/app/<graph>/ in Roam's storage.
+ *  A local graph's are local-asset/<graph>/ files, and only Roam's desktop app has them. */
+const ownKey = (key: string, graph: string) => (isLocalGraph() ? isDesktop() && isOwnLocalKey(key, graph) : isOwnKey(key, graph));
 
 
 /** Opening the list with this many sizes and dates to fetch shows the progress box at once ... */
@@ -59,11 +63,8 @@ export class App {
   }
 
   private async doScan() {
-    if (isLocalGraph()) return this.scanLocal();
     const graph = graphName(), now = Date.now();
-    // Files uploaded to this graph live in imgs/app/<graph>/. Only those can be unused or deleted: a
-    // file pasted from another graph belongs to that graph.
-    const own = (key: string) => isOwnKey(key, graph);
+    const own = (key: string) => ownKey(key, graph);
     const files = await scanGraph();
     // a PDF page goes on drawing from its file after the {{pdf}} block is gone: such a file is in use
     const inPdf = await pdfKeys().catch(() => new Set<string>());
@@ -88,14 +89,6 @@ export class App {
     const all = [...files.values(), ...unused];
     const lastUsed = new Map(seen.map((s) => [s.key, s.lastUsed]));
     this.rows = all.map((f) => this.toRow(f, !files.has(f.key) && !inPdf.has(f.key), own(f.key), lastUsed.get(f.key) ?? 0));
-  }
-
-  /** A local graph: what its blocks hold is listed, and nothing more. Roam's public API can neither
-   *  list a local graph's stored files nor delete one (file.delete refuses local graphs), so nothing
-   *  here is found as unused, and nothing can be ticked or deleted. */
-  private async scanLocal() {
-    const files = await scanGraph();
-    this.rows = [...files.values()].map((f) => this.toRow(f, false, false, 0));
   }
 
   private toRow(f: FileEntry, unused: boolean, own: boolean, lastUsed: number): Row {
@@ -214,7 +207,7 @@ export class App {
     for (const r of rows) {
       // unloaded, the list left, or another graph opened since the confirmation: the rest is left alone
       if (this.stopped || this.view !== view || graphName() !== graph) break;
-      if (!r.own || isLocal(r.url) || !isOwnKey(r.key, graph) || storageKey(r.url) !== r.key) continue;
+      if (!r.own || !ownKey(r.key, graph) || storageKey(r.url) !== r.key) continue;
       if (r.uses.length === 0 && current.other.has(r.key)) { used.push(r); continue; }
       if (r.uses.length === 0 && current.text.has(r.key)) { mentioned.push(r); continue; }
       let answered = true;
@@ -223,7 +216,8 @@ export class App {
       // Then storage is asked about the file: 'gone' is its 403 or 404. A delete that threw counts only
       // when storage says the file isn't there (no error text is read). One that didn't throw counts
       // unless storage still has the file.
-      const m = await fetchMeta(r.url).catch(() => null);
+      // (a local graph's file: Roam's desktop app is asked, where it serves the file)
+      const m = await (isLocal(r.url) ? localMeta(srcOfRow(r)) : fetchMeta(r.url)).catch(() => null);
       if (m === 'gone' || (answered && m === null)) gone.push(r.key);
       else failed.push(r);
     }
