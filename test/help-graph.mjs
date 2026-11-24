@@ -134,6 +134,18 @@ const warn = await page.evaluate(() => document.querySelector('.rfm-delete-warni
 check('deleting a file in use warns about broken blocks', /can't be undone/.test(warn) && /This file is still referenced in \d+ blocks?, which will be left with (a )?broken (image|link)s?\./.test(warn), warn);
 check('the confirmation shows the file\'s picture or icon, and no Enter shortcut', await page.evaluate(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 1 && !document.querySelector('.confirmation-content-dialog .confirm-button .bp3-icon-key-enter')));
 await page.screenshot({ path: path.join(OUT, '3b-delete-in-use.png') });
+// Enter on a focused Cancel cancels
+await page.focus('.confirmation-content-dialog .cancel-button');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(300);
+check('Enter on a focused Cancel closes the confirmation', await page.evaluate(() => !document.querySelector('.confirmation-content-dialog')));
+// Enter held on the trash button opens one confirmation and does nothing more
+await page.focus('.rfm-view .bp3-icon-trash');
+await page.keyboard.down('Enter');
+for (let i = 0; i < 5; i++) { await page.keyboard.down('Enter'); await page.waitForTimeout(50); }
+await page.keyboard.up('Enter');
+await page.waitForTimeout(300);
+check('Enter held on the trash opens one confirmation, which stays open', await page.evaluate(() => document.querySelectorAll('.confirmation-content-dialog').length === 1));
 await page.click('.confirmation-content-dialog .cancel-button');
 await page.waitForTimeout(300);
 check('Cancel closes the confirmation', await page.evaluate(() => !document.querySelector('.confirmation-content-dialog')));
@@ -359,10 +371,18 @@ await page.waitForTimeout(800);
 
 // unload leaves nothing behind
 await page.click('.rm-left-sidebar__files');
-await page.waitForSelector('.rfm-view');
+await page.waitForSelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:not([disabled])');
+// with the delete confirmation open: unload takes it away too, and Enter or a click afterwards does nothing
+await page.evaluate(() => document.querySelector('.rfm-view .rm-pages-row:not(.rm-pages-row-header) input:not([disabled])').click());
+await page.click('.rfm-view .bp3-icon-trash');
+await page.waitForSelector('.confirmation-content-dialog');
+await page.evaluate(() => { window.__idbOpens = 0; const o = indexedDB.open.bind(indexedDB); indexedDB.open = (n, ...a) => { if (n === 'roam-file-manager') window.__idbOpens++; return o(n, ...a); }; });
 await page.evaluate(() => window.__ext.onunload());
 await page.waitForTimeout(800);
-check('unload removes the row, the view and the styles', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager]')));
+check('unload removes the row, the view, the styles and an open confirmation', await page.evaluate(() => !document.querySelector('.rm-left-sidebar__files, .rfm-view, style[data-roam-file-manager], .confirmation-content-dialog')));
+await page.keyboard.press('Enter');
+await page.waitForTimeout(1500);
+check('after unload nothing opens the extension\'s database again', await page.evaluate(() => window.__idbOpens === 0), String(await page.evaluate(() => window.__idbOpens)));
 
 // Clicking away while the list loads (a new browser profile has nothing kept, so it is a first load again).
 {

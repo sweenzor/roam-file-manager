@@ -1,7 +1,7 @@
 // File Manager for Roam Research. Adds "Files" under All Pages in the left sidebar: a details
 // list of every file uploaded to the graph, in the style of Roam's All Pages.
 import { App, VIEW_ID as ID } from './app.ts';
-import { closeStore } from './store.ts';
+import { openStore, closeStore } from './store.ts';
 import { STYLES } from './view.ts';
 import { h } from './dom.ts';
 
@@ -13,6 +13,7 @@ let cleanup: (() => void)[] = [];
 function onload() {
   const api = (window as any).roamAlphaAPI;
   const React = (window as any).React;
+  openStore();
   const app = new App();
 
   const style = h('style', { 'data-roam-file-manager': 'style' }, STYLES);
@@ -29,7 +30,7 @@ function onload() {
   cleanup.push(() => {
     if (app.mounted) api.ui.mainWindow.closeComponent(ID);
     api.ui.mainWindow.unregisterComponent(ID);
-    app.unmount();
+    app.stop();
   });
 
   // "Files" in the left sidebar, built like the All Pages row. Roam redraws the sidebar when it

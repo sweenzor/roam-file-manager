@@ -53,6 +53,7 @@ export const KIND_LABELS: [Kind, string][] = [['image', 'Images'], ['pdf', 'PDFs
 const KIND_ICON: Record<Kind, string> = { image: 'media', pdf: 'document', audio: 'music', video: 'video', other: 'paperclip' };
 
 export const STYLES = `
+.rfm-toasts{position:fixed;inset:0;z-index:40;pointer-events:none}
 .rfm-view .rfm-scroller .rm-pages-row{height:${ROW_H}px;box-sizing:border-box}
 .rfm-view .rfm-scroller .rm-pages-row .rm-pages-title-col{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;overflow:hidden;padding-top:6px;padding-bottom:6px}
 .rfm-view .rfm-thumb{flex:0 0 26px;width:26px;height:26px;border-radius:3px;object-fit:cover;background:#f5f8fa}
@@ -283,7 +284,10 @@ export class FilesView {
     this.applyGrid();
   }
 
-  destroy() { this.sortRun++; this.sorting = false; this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.progress(null); this.el.remove(); }
+  /** Closes the delete confirmation, if it is open (on leaving the view and on unload). */
+  private closeDialog: (() => void) | null = null;
+
+  destroy() { this.closeDialog?.(); this.sortRun++; this.sorting = false; this.ro.disconnect(); this.closePopover(); this.hidePreview(); this.progress(null); this.el.remove(); }
 
   setRows(rows: Row[]) {
     this.rows = rows;
@@ -523,7 +527,9 @@ export class FilesView {
     this.popover = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-transition-container bp3-popover-enter-done', style: { position: 'fixed', top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(left ? r.left : r.right - width, window.innerWidth - width - 8))}px`, zIndex: '20' } },
       h('div', { class: 'bp3-popover bp3-minimal' }, h('div', { class: 'bp3-popover-content' }, body))));
     document.body.append(this.popover);
-    setTimeout(() => document.addEventListener('mousedown', this.outside, true));
+    // only while this popover is still the open one: closed (or the view destroyed) in between, nothing is left listening
+    const opened = this.popover;
+    setTimeout(() => { if (this.popover === opened) document.addEventListener('mousedown', this.outside, true); });
   }
 
   // ---------- preview on hover: a picture, or a video that plays ----------
@@ -632,14 +638,31 @@ export class FilesView {
     // files still in blocks: a warning above the list, and Enter no longer confirms
     const warning = inUseWarning(rows);
     const n = rows.length, noun = n === 1 ? 'file' : 'files';
-    let overlay: HTMLElement;
-    const close = () => { this.hidePreview(); overlay.remove(); document.removeEventListener('keydown', key, true); };
+    let overlay: HTMLElement, going = false;
+    const close = () => {
+      if (this.closeDialog === close) this.closeDialog = null;
+      this.el.removeAttribute('inert');
+      this.hidePreview(); overlay.remove(); document.removeEventListener('keydown', key, true);
+    };
     const go = async () => {
+      // once only: a second Enter or click while the first delete runs does nothing, nor does one after unload
+      if (going || !overlay.isConnected) return;
+      going = true;
       confirm.disabled = true;
       // nothing stays ticked afterwards, including a file that could not be deleted
       try { await this.actions.deleteFiles(rows); } finally { for (const r of rows) this.selected.delete(r.key); this.refresh(); close(); }
     };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } else if (e.key === 'Enter') { e.preventDefault(); if (!warning) go(); } };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
+      if (e.key !== 'Enter') return;
+      // a held key repeats: it neither opens the dialog and confirms it at once, nor clicks anything behind it
+      if (e.repeat) { e.preventDefault(); e.stopPropagation(); return; }
+      // a focused button in the dialog answers Enter itself (Cancel cancels), except Yes for files still in blocks
+      const t = e.target as HTMLElement | null;
+      if (t && overlay.contains(t) && t.closest('button, a, input') && !(warning && t.closest('.confirm-button'))) return;
+      e.preventDefault(); e.stopPropagation();
+      if (!warning) go();
+    };
     const confirm = h('button', { class: 'bp3-button confirm-button bp3-intent-danger', onClick: go }, h('span', {}, `Yes, delete ${noun}`), !warning && icon('key-enter'));
     overlay = h('div', { class: 'bp3-portal' }, h('div', { class: 'bp3-overlay bp3-overlay-open bp3-overlay-scroll-container' },
       h('div', { class: 'bp3-overlay-backdrop', onClick: close }),
@@ -663,6 +686,11 @@ export class FilesView {
             h('div', { class: 'flex-h-box confirmation-content-buttons' },
               h('button', { class: 'bp3-button bp3-minimal cancel-button', onClick: close }, h('span', {}, 'Cancel'), icon('key-escape')),
               confirm))))));
+    this.closeDialog?.();
+    this.closeDialog = close;
+    // the trash button keeps no focus behind the dialog, and the list takes no keys or clicks under it
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    this.el.setAttribute('inert', '');
     document.body.append(overlay);
     document.addEventListener('keydown', key, true);
   }

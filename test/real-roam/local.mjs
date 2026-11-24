@@ -1,15 +1,15 @@
 // End-to-end run of the built extension in a LOCAL graph of Roam's real desktop app (Linux build,
 // under Xvfb), signed in to the test account. In a local graph Roam's desktop app keeps uploads on the
-// computer (local-asset://<graph>/<id>.<ext>) and lists and deletes them itself, as its Settings >
-// Attachments does; roamAlphaAPI.file.delete refuses them.
+// computer (local-asset://<graph>/<id>.<ext>). Roam's public API can't list or delete them
+// (roamAlphaAPI.file.delete refuses local graphs), so File Manager lists what the blocks hold and
+// deletes nothing there.
 //
 //   DISPLAY=:99 ROAM_EMAIL=… ROAM_PASSWORD=… node test/real-roam/local.mjs
 //
 // Makes a fresh local graph by its address (#/offline/<name>; every CI runner starts without one),
 // uploads three files to it and checks: they are listed with type, size and date, with their pages and
-// mentions; the pictures are drawn; a file whose block is deleted is listed as unused at once (Roam's
-// own list of the graph's files says so, nothing has to be remembered); a delete happens only after the
-// confirmation and takes the file off the computer; a file still in a block is untouched. Writes
+// mentions; the pictures are drawn; nothing can be ticked or deleted; a file whose block is deleted
+// leaves the list, and stays on the computer. Writes
 // RESULTS.md and PNG screenshots to $OUT/local.
 //
 // Credentials as in run.mjs: from the environment only, never logged, no picture before the graph is open.
@@ -71,20 +71,7 @@ const rows = () => evalIn((v) => [...document.querySelectorAll(`${v} .rm-pages-r
   ticks: !r.querySelector('input[type=checkbox]')?.disabled,
 })), VIEW);
 const rowOf = async (name) => (await rows()).find((r) => r.name === name);
-const tick = (name) => evalIn(([v, name]) => {
-  const r = [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name);
-  r?.querySelector('input[type=checkbox]').click(); return !!r;
-}, [VIEW, name]);
 const trashOff = () => evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).disabled, VIEW);
-const setSwitch = async (label, on) => {
-  if (!(await evalIn(() => !!document.querySelector('.bp3-popover .bp3-switch')))) await evalIn((v) => document.querySelector(`${v} .bp3-icon-filter`).click(), VIEW);
-  await sleep(300);
-  await evalIn(([label, on]) => { const i = [...document.querySelectorAll('.bp3-popover label')].find((e) => e.textContent.trim() === label).querySelector('input'); if (i.checked !== on) i.click(); }, [label, on]);
-  await sleep(300);
-};
-const closePopover = async () => { await roam.page.mouse.click(700, 740); await sleep(300); };
-const dialogOpen = () => evalIn(() => !!document.querySelector('.confirmation-content-dialog'));
-const warningText = () => evalIn(() => document.querySelector('.confirmation-content-dialog .rfm-delete-warning')?.innerText.replace(/\s+/g, ' ') ?? '');
 /** Where Roam's desktop app serves a local file, and whether it still has it: 200, or 404 once deleted. */
 const httpOf = (url) => `http://127.0.0.1:3333/local-asset/${url.slice('local-asset://'.length)}`;
 const stored = (url) => evalIn((u) => fetch(u).then((r) => r.status, () => 0), httpOf(url));
@@ -161,7 +148,7 @@ try {
   check('a file on two pages names both and counts two mentions', kept?.mentions === '2' && kept?.page.includes(`${TEST_PAGE} 2`), `${kept?.page}, ${kept?.mentions}`);
   const today = await evalIn(() => window.roamAlphaAPI.util.dateToPageTitle(new Date()));
   check('shows the date added in Roam\'s date format', kept?.added === today, kept?.added);
-  check('the graph\'s own files can be ticked', kept?.ticks && doc?.ticks);
+  check('nothing can be ticked in a local graph: Roam\'s API can\'t delete its files', !kept?.ticks && !doc?.ticks && !dropped?.ticks);
   await waitFor('the thumbnails', () => evalIn((v) => [...document.querySelectorAll(`${v} img.rfm-thumb`)].filter((i) => i.complete && i.naturalWidth > 0).length >= 2, VIEW), 15000).then(
     () => check('the pictures are drawn from Roam\'s desktop app', true), () => check('the pictures are drawn from Roam\'s desktop app', false));
   await evalIn(([v, name]) => [...document.querySelectorAll(`${v} .rm-pages-row:not(.rm-pages-row-header)`)].find((r) => r.querySelector('.rm-pages-title-text')?.textContent.trim() === name).querySelector('.rm-clickable-pill').click(), [VIEW, nameOf(urls.kept)]);
@@ -181,58 +168,17 @@ try {
   await evalIn((v) => document.querySelector(`${v} .rfm-grid-button`).click(), VIEW);
   await sleep(500);
 
-  // ---- a file whose block is deleted is unused at once ----
+  // ---- a file whose block is deleted leaves the list; nothing is deleted from the computer ----
   await evalIn((uid) => window.roamAlphaAPI.data.block.delete({ block: { uid } }), made.blocks.dropped);
   await sleep(1000);
   await closeAllFiles();
   await openAllFiles();
-  await setSwitch('Unused', true);
-  await closePopover();
-  await waitFor('the unused file', async () => !!(await rowOf(nameOf(urls.dropped))), 20000).catch(() => {});
+  await waitFor('the other files', async () => !!(await rowOf(nameOf(urls.kept))), 20000).catch(() => {});
   list = await rows();
-  check('Unused lists the file no block uses any more, and only it', list.length === 1 && list[0].name === nameOf(urls.dropped) && list[0].mentions === '0', list.map((r) => r.name).join(', '));
-  await shot('local-unused');
-
-  // ---- delete: only after the confirmation ----
-  await tick(nameOf(urls.dropped));
-  check('trash is on for an unused file', !(await trashOff()));
-  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
-  await waitFor('the confirmation', dialogOpen, 5000);
-  await waitFor('the picture in the confirmation', () => evalIn(() => { const i = document.querySelector('.confirmation-content-dialog img.rfm-delete-thumb'); return !!i && i.complete && i.naturalWidth > 0; }), 15000).then(
-    () => check('the confirmation shows the picture', true), () => check('the confirmation shows the picture', false));
-  await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
-  await sleep(1500);
-  check('Cancel deletes nothing', (await stored(urls.dropped)) === 200 && !!(await rowOf(nameOf(urls.dropped))));
-  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
-  await waitFor('the confirmation', dialogOpen, 5000);
-  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
-  await waitFor('the deleted file to leave the list', async () => !(await rowOf(nameOf(urls.dropped))), 30000).catch(() => {});
-  check('confirming takes the file off the computer', (await stored(urls.dropped)) === 404 && !(await rowOf(nameOf(urls.dropped))), `the app answers ${await stored(urls.dropped)}`);
-  check('the files still in blocks are untouched', (await stored(urls.kept)) === 200 && (await stored(urls.doc)) === 200);
-  check('no error toast', !(await evalIn(() => [...document.querySelectorAll('.bp3-toast')].some((t) => /delete/i.test(t.textContent)))));
-  await setSwitch('Unused', false);
-  await closePopover();
-
-  // ---- deleting a file that a block still holds ----
-  await tick(DOC);
-  await evalIn((v) => document.querySelector(`${v} .bp3-icon-trash`).click(), VIEW);
-  await waitFor('the confirmation', dialogOpen, 5000);
-  const warn = await warningText();
-  check('warns about the block it leaves with a broken link', warn.includes('This file is still referenced in 1 block, which will be left with a broken link.'), warn);
-  await roam.page.keyboard.press('Enter');
-  await sleep(1500);
-  check('Enter does not confirm it', (await dialogOpen()) && (await stored(urls.doc)) === 200);
-  await shot('local-delete-in-use');
-  await evalIn(() => document.querySelector('.confirmation-content-dialog .confirm-button').click());
-  await waitFor('the deleted file to leave the list', async () => !(await rowOf(DOC)), 30000).catch(() => {});
-  check('confirming deletes a file that was still in a block', (await stored(urls.doc)) === 404, `the app answers ${await stored(urls.doc)}`);
-  check('its block is left as it was', await evalIn(([uid, url]) => window.roamAlphaAPI.data.pull('[:block/string]', [':block/uid', uid])?.[':block/string']?.includes(url), [made.blocks.doc, urls.doc]));
-  await closeAllFiles();
-  await openAllFiles();
-  await sleep(1500);
-  list = await rows();
-  check('a deleted file stays out of the list while its dead link is still in a block', !list.some((r) => r.name === DOC) && list.some((r) => r.name === nameOf(urls.kept)), list.map((r) => r.name).join(', '));
-  check('the picture still in two blocks is untouched', (await stored(urls.kept)) === 200);
+  check('a file no block holds any more leaves the list', !list.some((r) => r.name === nameOf(urls.dropped)) && list.some((r) => r.name === nameOf(urls.kept)), list.map((r) => r.name).join(', '));
+  check('the trash stays off', await trashOff());
+  check('every file is still on the computer', (await Promise.all(Object.values(urls).map(stored))).every((s) => s === 200));
+  await shot('local-after-block-deleted');
 } catch (e) {
   failed = e.message.split('\n')[0];
   log('ERROR', e.message);
