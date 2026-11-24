@@ -270,6 +270,18 @@ try {
   check('asks before deleting, naming the files and their mentions', /permanently delete 2 files\?/.test(dialog) && dialog.includes(NAMES.dropped) && dialog.includes(NAMES.doc) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog .rfm-delete-item .rm-clickable-pill.empty-pill').length === 2), dialog.split('\n')[0]);
   check('no warning for files with 0 mentions, and each has its picture or icon', !(await warningText()) && await evalIn(() => document.querySelectorAll('.confirmation-content-dialog img.rfm-delete-thumb').length === 1 && document.querySelectorAll('.confirmation-content-dialog .rfm-delete-thumb').length === 2));
   await shot('delete-confirm');
+  // Enter on a focused Cancel cancels, even for files with 0 mentions (where Enter alone confirms)
+  await roam.page.focus('.confirmation-content-dialog .cancel-button');
+  await roam.page.keyboard.press('Enter');
+  await sleep(1500);
+  check('Enter on a focused Cancel deletes nothing', !(await evalIn(() => !!document.querySelector('.confirmation-content-dialog'))) && (await stored(urls.dropped)) === 200 && !!(await rowOf(NAMES.dropped)));
+  // Enter held on the trash button opens the confirmation and doesn't confirm it
+  await roam.page.focus(`${VIEW} .bp3-icon-trash`);
+  await roam.page.keyboard.down('Enter');
+  for (let i = 0; i < 8; i++) { await roam.page.keyboard.down('Enter'); await sleep(40); }
+  await roam.page.keyboard.up('Enter');
+  await sleep(1500);
+  check('Enter held on the trash opens the confirmation and deletes nothing', await evalIn(() => document.querySelectorAll('.confirmation-content-dialog').length === 1) && (await stored(urls.dropped)) === 200);
   await evalIn(() => document.querySelector('.confirmation-content-dialog .cancel-button').click());
   await sleep(1500);
   check('Cancel deletes nothing', (await stored(urls.dropped)) === 200 && !!(await rowOf(NAMES.dropped)));

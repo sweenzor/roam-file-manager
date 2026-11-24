@@ -120,21 +120,17 @@ look at the blocks first: the confirmation closes, nothing is deleted and your t
 
 ## Local graphs
 
-File Manager works the same way in a local graph. Roam's desktop app keeps a local graph's files on
-your computer rather than in Roam's file storage, and File Manager lists, shows and deletes them there,
-the way Roam's own **Settings > Attachments** does.
+In a local graph Roam's desktop app keeps the files on your computer rather than in Roam's file storage.
+File Manager lists the files your blocks hold there, with their mentions, sizes, thumbnails and previews,
+as in any graph.
 
-![The Files list in a local graph: the same kitchen files, kept on the computer, the pictures listed by the names Roam stored them under](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/local.png)
+![The Files list in a local graph: the kitchen files the blocks hold, the pictures listed by the names Roam stored them under](https://raw.githubusercontent.com/sweenzor/roam-file-manager/f3f8c1e253b713d7f539996eb737e82837f0e4cb/docs/images/local.png)
 
 | | In a local graph |
 | --- | --- |
 | **Name** | Roam keeps a local file under the name it stored it as, not the name it was uploaded with, so that's the name listed, as in Roam's **Settings > Attachments**. |
 | **Mentions, sort, search, thumbnails, previews** | As in any graph. |
-| **0 mentions** | Roam's desktop app knows every file a local graph has, so every file no block mentions is found, including ones that lost their block before File Manager was installed. |
-| **Deleting** | The file is deleted from your computer, after the same confirmation. |
-
-Roam can only upload files to a local graph in its desktop app, and File Manager can only delete them
-there.
+| **0 mentions and deleting** | Not in a local graph. Roam's extension API can't list a local graph's stored files or delete one, so a file no block holds isn't listed, and nothing can be ticked. Use Roam's **Settings > Attachments** to delete them. |
 
 ## Good to know
 
@@ -146,8 +142,8 @@ blocks, when Roam starts and every ten minutes after that, and remembers on your
 seen there. A file shows 0 mentions when it was seen in a block and no block holds it any more.
 
 So a file that lost its block before File Manager was installed doesn't appear, and neither does one
-that was uploaded and removed again within a few minutes. In a [local graph](#local-graphs) Roam's
-desktop app knows all of the graph's files, so every one of them is found.
+that was uploaded and removed again within a few minutes. In a [local graph](#local-graphs) no unused
+files are found.
 </details>
 
 <details>
@@ -180,7 +176,8 @@ recording on a computer without HEVC support) keeps the video icon.
 File sizes, upload dates, video pictures and the list of files File Manager has seen are kept on your
 device, so each computer you use builds its own. Nothing is written to your graph, and nothing is sent
 anywhere except to Roam's own file storage, to read a file's size and date and to delete the files you
-confirm. In a local graph it asks Roam's desktop app instead, and nothing leaves your computer.
+confirm. In a local graph it reads the files where Roam's desktop app shows them to Roam, for their
+sizes, and nothing leaves your computer.
 </details>
 
 ## Development

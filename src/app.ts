@@ -1,19 +1,18 @@
 // Ties the graph scan, the device store and the Files view together.
 import { type FileEntry, type Row } from './files.ts';
 import { scanGraph, keysAnywhere } from './scan.ts';
-import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, type Meta, type Seen } from './store.ts';
+import { getMeta, putMeta, getSeen, putSeen, forget, fetchMeta, localMeta, type Meta, type Seen } from './store.ts';
 import { FilesView, defaultState, srcOfRow, type ViewState } from './view.ts';
-import { kindOf, extOf, storedName, isLocal, localId } from './files.ts';
-import { isDesktop, listGraphFiles, deleteGraphFile, type LocalFile } from './local.ts';
+import { kindOf, extOf, storedName, isLocal } from './files.ts';
 
 export const VIEW_ID = 'roam-file-manager';
 const api = () => (window as any).roamAlphaAPI;
 const graphName = (): string => api().graph.name;
 /** A local graph keeps its uploads on the computer, through Roam's desktop app. */
 const isLocalGraph = () => api().graph.type === 'offline';
-/** Files uploaded to this graph live under imgs/app/<graph>/ (local-asset/<graph>/ in a local graph).
- *  Only those can be unused or deleted: a file pasted from another graph belongs to that graph. */
-const ownPrefix = () => (isLocalGraph() ? `local-asset/${graphName()}/` : `imgs/app/${graphName()}/`);
+/** Files uploaded to this graph live under imgs/app/<graph>/. Only those can be unused or deleted: a
+ *  file pasted from another graph belongs to that graph. */
+const ownPrefix = () => `imgs/app/${graphName()}/`;
 
 
 /** Opening the list with this many sizes and dates to fetch shows the progress box at once ... */
@@ -76,30 +75,12 @@ export class App {
     this.rows = all.map((f) => this.toRow(f, !files.has(f.key), f.key.startsWith(own), lastUsed.get(f.key) ?? 0));
   }
 
-  /** A local graph: Roam's desktop app lists the graph's files, as Roam's own Settings > Attachments does,
-   *  so an unused file is one in that list that no block holds, and nothing has to be remembered.
-   *  In a browser there is no such list (and nothing can be uploaded to a local graph there): only
-   *  what the blocks hold is listed, and nothing of it can be deleted. */
+  /** A local graph: what its blocks hold is listed, and nothing more. Roam's public API can neither
+   *  list a local graph's stored files nor delete one (file.delete refuses local graphs), so nothing
+   *  here is found as unused, and nothing can be ticked or deleted. */
   private async scanLocal() {
-    const own = ownPrefix();
     const files = await scanGraph();
-    let stored: Map<string, LocalFile> | null = null;
-    if (isDesktop()) stored = await listGraphFiles(graphName()).catch((e) => { console.warn('[roam-file-manager]', e); return null; });
-    const rows: Row[] = [];
-    for (const f of files.values()) {
-      const mine = f.key.startsWith(own);
-      if (mine && stored && !stored.has(storedName(f.key))) continue; // deleted: the blocks keep a dead link
-      rows.push(this.toRow(f, false, mine && !!stored, 0));
-    }
-    for (const s of stored?.values() ?? []) {
-      const key = own + s.name;
-      this.meta.set(key, { size: s.size, created: s.created, fileName: null, type: s.type });
-      if (files.has(key)) continue;
-      const ext = extOf(key);
-      rows.push(this.toRow({ key, url: s.url, name: s.name, ext, kind: kindOf(ext), added: s.created, uses: [] }, true, true, 0));
-    }
-    for (const r of rows) this.applyMeta(r);
-    this.rows = rows;
+    this.rows = [...files.values()].map((f) => this.toRow(f, false, false, 0));
   }
 
   private toRow(f: FileEntry, unused: boolean, own: boolean, lastUsed: number): Row {
@@ -121,8 +102,7 @@ export class App {
     this.fetching?.abort();
     const ctl = this.fetching = new AbortController();
     // what is on screen first, then the rest in the order of the list
-    // a local graph's file has no metadata to fetch: Roam's desktop app sends its size and date with the list
-    const todo = new Map((this.view?.order() ?? this.rows).filter((r) => !this.meta.has(r.key) && !isLocal(r.url)).map((r) => [r.key, r]));
+    const todo = new Map((this.view?.order() ?? this.rows).filter((r) => !this.meta.has(r.key)).map((r) => [r.key, r]));
     // a first open has every file to fetch: the view shows how far that has got, and waits for it
     const total = todo.size;
     let done = 0, shown = total >= PROGRESS_AT_ONCE;
@@ -147,7 +127,8 @@ export class App {
     await Promise.all(Array.from({ length: 6 }, async () => {
       for (let r = next(); r && !ctl.signal.aborted; r = next()) {
         try {
-          const m = await fetchMeta(r.url, ctl.signal);
+          // a local graph's file is read where Roam's desktop app serves it to the page, for its size
+          const m = isLocal(r.url) ? await localMeta(srcOfRow(r), ctl.signal) : await fetchMeta(r.url, ctl.signal);
           if (m === 'gone') { if (r.unused) gone.push(r.key); }
           else if (m) { this.meta.set(r.key, m); pending.push([r.key, m]); }
         } catch { /* offline or aborted: try again next time */ }
@@ -208,23 +189,21 @@ export class App {
     const current = await keysAnywhere();
     const gone: string[] = [];
     for (const r of rows) {
-      if (!r.key.startsWith(own) || (r.uses.length === 0 && current.has(r.key))) continue;
+      if (!r.own || !r.key.startsWith(own) || isLocal(r.url) || (r.uses.length === 0 && current.has(r.key))) continue;
       try {
-        // roamAlphaAPI.file.delete refuses local graphs: Roam's desktop app deletes their files, as in Settings > Attachments
-        if (isLocal(r.url)) await deleteGraphFile(graph, localId(r.key));
-        else await api().file.delete({ url: r.url });
+        await api().file.delete({ url: r.url });
         gone.push(r.key);
       } catch (e) {
-        // already gone from storage counts as deleted
-        if (/not.?found|404|does not exist/i.test(String(e))) gone.push(r.key);
+        // counted as deleted only when storage itself says the file isn't there (no error text is trusted)
+        const m = await fetchMeta(r.url).catch(() => null);
+        if (m === 'gone') gone.push(r.key);
         else console.warn('[roam-file-manager] delete failed', r.key, e);
       }
     }
     await forget(graph, gone).catch(() => {});
     for (const k of gone) this.meta.delete(k);
-    // the blocks that held a deleted file keep its dead link: remember that the file is gone (a local
-    // graph's list of files says so by itself)
-    const dead: [string, Meta][] = gone.filter((k) => current.has(k) && !k.startsWith('local-asset/')).map((k) => [k, { size: 0, created: 0, fileName: null, type: null, gone: true }]);
+    // the blocks that held a deleted file keep its dead link: remember that the file is gone
+    const dead: [string, Meta][] = gone.filter((k) => current.has(k)).map((k) => [k, { size: 0, created: 0, fileName: null, type: null, gone: true }]);
     for (const [k, m] of dead) this.meta.set(k, m);
     await putMeta(dead).catch(() => {});
     await this.scan().catch(() => {});

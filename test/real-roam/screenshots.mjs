@@ -326,7 +326,7 @@ async function main() {
   if (!stored.every((s) => s === 200)) throw new Error(`a demo file went missing while the pictures were taken: ${stored.join(' ')}`);
 }
 
-/** 10. A local graph: Roam's desktop app keeps its files on the computer, and Files lists them the same way.
+/** 10. A local graph: Roam's desktop app keeps its files on the computer, and Files lists the ones blocks hold.
  *  A new local graph, made by its address; it lives only on this runner. */
 const LOCAL_GRAPH = 'kitchen-renovation';
 async function local() {
@@ -357,7 +357,8 @@ async function local() {
   // Roam's own banner about backing up local graphs, closed as a user would
   await evalIn(() => document.querySelectorAll('.bp3-toast .bp3-icon-cross, .bp3-toast button[aria-label="Close"]').forEach((b) => (b.closest('button') ?? b).click()));
   await openFiles();
-  await waitFor('every demo file in the list, with sizes', async () => { const list = await rows(); return list.length === made.names.length && list.every((r) => r.size); }, 30000);
+  // Roam's API can't list a local graph's stored files: the files whose blocks were deleted aren't listed
+  await waitFor('every demo file still in a block in the list, with sizes', async () => { const list = await rows(); return list.length === made.names.length - UNUSED.length && list.every((r) => r.size); }, 30000);
   await waitFor('the pictures in the list', () => picturesLoaded(VIEW), 30000);
   await waitFor('the video\'s still', () => evalIn((v) => !!document.querySelector(`${v} .rfm-still img`), VIEW), 30000);
   await parkMouse();

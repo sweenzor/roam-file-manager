@@ -12,8 +12,11 @@ export interface Seen { id: string; graph: string; key: string; url: string; nam
 
 const DB = 'roam-file-manager';
 let dbp: Promise<IDBDatabase> | null = null;
+/** Set on unload: nothing opens the database again until the extension is loaded again. */
+let closed = false;
 
 function open(): Promise<IDBDatabase> {
+  if (closed) return Promise.reject(new Error('roam-file-manager is unloaded'));
   return dbp ??= new Promise((res, rej) => {
     const r = indexedDB.open(DB, 1);
     r.onupgradeneeded = () => {
@@ -21,12 +24,13 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
       if (!db.objectStoreNames.contains('seen')) db.createObjectStore('seen', { keyPath: 'id' }).createIndex('graph', 'graph');
     };
-    r.onsuccess = () => res(r.result);
+    r.onsuccess = () => { if (closed) { r.result.close(); rej(new Error('roam-file-manager is unloaded')); } else res(r.result); };
     r.onerror = () => { dbp = null; rej(r.error); };
   });
 }
 
-export function closeStore() { dbp?.then((db) => db.close(), () => {}); dbp = null; }
+export function openStore() { closed = false; }
+export function closeStore() { closed = true; dbp?.then((db) => db.close(), () => {}); dbp = null; }
 
 const done = (t: IDBTransaction) => new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = t.onabort = () => rej(t.error); });
 const req = <T>(r: IDBRequest<T>) => new Promise<T>((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
@@ -88,4 +92,15 @@ export async function fetchMeta(url: string, signal?: AbortSignal): Promise<Meta
   if (!r.ok) return null;
   const m = await r.json();
   return { size: +m.size || 0, created: Date.parse(m.timeCreated) || 0, fileName: m.metadata?.['file-name'] ?? null, type: m.contentType ?? null };
+}
+
+/** A local graph's file, read where Roam's desktop app serves it to the page: its size, counted as it
+ *  streams by (the app sends no Content-Length), and its type. Nothing of it is kept. */
+export async function localMeta(src: string, signal?: AbortSignal): Promise<Meta | null> {
+  const r = await fetch(src, { signal });
+  if (!r.ok || !r.body) return null;
+  let size = 0;
+  const reader = r.body.getReader();
+  for (let c = await reader.read(); !c.done; c = await reader.read()) size += c.value.byteLength;
+  return { size, created: 0, fileName: null, type: r.headers.get('content-type') };
 }
